@@ -13,9 +13,8 @@ sketch, the lessons airp paid for, and the roadmap.
   C#/.NET developer: explain Python by **mapping it to the .NET equivalent** (ASP.NET Core, EF Core,
   xUnit, `IOptions<T>`…).
 - **Claude writes the code; the course teaches it.** `docs/course/` (built to a PDF) explains each
-  step as it is built, mapped to .NET. **Keep it up to date in the same commit** as the change it
-  describes — a step is not done until its chapter is.
-- **One change at a time**, confirmed before moving on.
+  step as it is built, mapped to .NET. Each step's chapter is its own issue and its own commit, in
+  that step's PR — a step is not done until its chapter is.
 - **The UI is dark and designed** — not framework defaults.
 - **Do not invent and do not assume.** If a fact is missing, ask.
 - **The lessons in `docs/KICKOFF.md` are binding.** Do not re-learn them; if a task seems to
@@ -29,9 +28,18 @@ sketch, the lessons airp paid for, and the roadmap.
 - **The gates, all clean before any commit:** `uv run pytest`, `uv run ruff check`,
   `uv run ruff format --check`, `uv run pyright` (strict).
 
+## Workflow
+- **One PR per roadmap step, one commit per issue.** Branch `step/N-…` from `develop`; each issue of
+  the step is exactly one commit (its message says `Closes #N`), the course chapter included. Open the
+  PR when every issue of the step is in it.
+- **After each merge, stop.** Sync `develop`, delete the merged branch (locally and on Forgejo),
+  report where things stand, and wait for the owner to choose what comes next. No autopilot: never
+  start the next issue or step unasked, and never stack a PR on an unmerged one.
+
 ## Tracking
 - **Every piece of work has a Forgejo issue**, in the milestone of its roadmap step
-  (`Step N · …`). Create the issue before starting work that has none; PRs say `Closes #N`.
+  (`Step N · …`). Work found along the way gets a new issue in the step's milestone — and its own
+  commit.
 - Labels follow the sibling repos: `type/*`, `area/*`, `needs-decision`, `owner/you`.
 
 ## Repository
