@@ -6,8 +6,8 @@ later grows out of this skeleton, so it is worth understanding every file in it.
 
 The step lands in three pieces, and this chapter grows with them:
 
-1. **The project** — uv, FastAPI, one endpoint, one test, ruff and pyright. *(This edition.)*
-2. **CI** — the gates running on Forgejo on every push. *(Coming with issue #4.)*
+1. **The project** — uv, FastAPI, one endpoint, one test, ruff and pyright.
+2. **CI** — the gates running on Forgejo on every push.
 3. **The deploy** — Render serving the app from the GitHub mirror. *(Coming with issue #5.)*
 
 ## What uv created
@@ -236,7 +236,73 @@ Then, in `main.py`, change the return to `{"status": 1}` and run `uv run pyright
 says `dict[str, str]`; pyright says no. Change it back.
 :::
 
+## CI on Forgejo
+
+The gates are only worth something if nothing reaches `develop` without passing them. A workflow
+in `.forgejo/workflows/ci.yml` runs all four on Forgejo, the self-hosted forge that is `origin`:
+
+```yaml
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    env:
+      UV_VERSION: "0.12.21"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Install uv
+        run: |
+          curl -LsSf "https://astral.sh/uv/${UV_VERSION}/install.sh" | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Sync the environment from uv.lock
+        run: uv sync --locked
+      - name: ruff check
+        run: uv run ruff check
+      - name: ruff format
+        run: uv run ruff format --check
+      - name: pyright (strict)
+        run: uv run pyright
+      - name: pytest
+        run: uv run pytest
+```
+
+The syntax is GitHub Actions'; Forgejo runs the same files. Reading it top to bottom:
+
+- **`on`** — a pull request into `develop` or `main` runs the gates, and so does the push that lands
+  when it merges. Pushes to a feature branch alone do not: the pull request covers them, without
+  running everything twice.
+- **`runs-on: ubuntu-latest`** — on this forge, the name of a Linux container image on the runner.
+  Each run starts from a fresh container, and uv and the project's Python come from the steps
+  below — so a green run proves the project builds from its committed files alone.
+- **Install uv** — one pinned release, the same version as on the development machine. Python then
+  comes from uv, exactly as on Windows: `uv sync` reads `.python-version` and fetches 3.14.
+- **`uv sync --locked`** — creates the environment from `uv.lock`, and **fails** if the lock no
+  longer matches `pyproject.toml`. Without `--locked`, uv would quietly re-resolve, and CI would test
+  versions nobody committed.
+- **The gates, cheapest first** — a formatting slip fails in seconds, before pyright and the tests
+  run.
+
+::: dotnet
+`uv sync --locked` is `dotnet restore --locked-mode`: restore exactly what the lock file says, or
+fail. And the workflow as a whole is the YAML pipeline you would write for Azure DevOps or GitHub
+Actions around `dotnet build` and `dotnet test` — with `uv sync` as the restore and pyright and
+ruff standing in for the build.
+:::
+
+::: note
+The workflow lives in `.forgejo/`, not `.github/`. GitHub ignores `.forgejo/`, so the GitHub mirror —
+which only exists for Render to deploy from — never runs it and never spends Actions minutes. The
+other house conventions (the `bash -e` shell, a checkout that keeps no credentials) are shared with
+the owner's other repositories.
+:::
+
 ## Still to come in this chapter
 
-- **CI on Forgejo** — the four gates, run on every push (issue #4).
 - **The deploy** — Render serving the app, and `GET /health` answering from the internet (issue #5).
