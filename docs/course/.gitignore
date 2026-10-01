@@ -1,0 +1,4 @@
+# Intermediate Typst source written by build.ps1
+course.typ
+# The light edition is built on demand for printing; only the dark one is committed.
+lustjinn-course-light.pdf
