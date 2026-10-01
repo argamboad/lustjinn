@@ -4,11 +4,11 @@ The goal of step 1 is the smallest thing that is real: a Python web app with one
 test, the quality gates, and a public URL that answers. Nothing about roleplay yet. Everything
 later grows out of this skeleton, so it is worth understanding every file in it.
 
-The step lands in three pieces, and this chapter grows with them:
+The step landed in three pieces, and this chapter follows them in order:
 
 1. **The project** — uv, FastAPI, one endpoint, one test, ruff and pyright.
 2. **CI** — the gates running on Forgejo on every push.
-3. **The deploy** — Render serving the app from the GitHub mirror. *(Coming with issue #5.)*
+3. **The deploy** — Render serving the app from the GitHub mirror.
 
 ## What uv created
 
@@ -100,7 +100,8 @@ repeatable — `uv.lock` plays the role of `packages.lock.json`, and it is commi
 
 ## The app
 
-The whole application, `src/lustjinn/main.py`:
+The first version of the whole application, `src/lustjinn/main.py` (the deploy, at the end of the
+chapter, grows it by one field):
 
 ```python
 """The FastAPI application: the object uvicorn serves."""
@@ -173,7 +174,7 @@ Swagger UI and **`/openapi.json`** the schema, both generated from the code — 
 
 ## The test
 
-`tests/test_health.py`:
+The first version of `tests/test_health.py`:
 
 ```python
 from fastapi.testclient import TestClient
@@ -303,6 +304,159 @@ other house conventions (the `bash -e` shell, a checkout that keeps no credentia
 the owner's other repositories.
 :::
 
-## Still to come in this chapter
+## The deploy
 
-- **The deploy** — Render serving the app, and `GET /health` answering from the internet (issue #5).
+The last piece puts the app on the internet: a **Render** free web service, called
+`lustjinn-staging`, serving the `develop` branch.
+
+### What Render runs
+
+Render's native Python runtime needs no Dockerfile. It reads `.python-version` to choose the
+interpreter, and because the repository contains `uv.lock`, it installs uv too. The service is
+described in `render.yaml` at the root of the repository — a **blueprint**:
+
+```yaml
+services:
+  - type: web
+    name: lustjinn-staging
+    runtime: python
+    plan: free
+    branch: develop
+    buildCommand: uv sync --locked --no-dev
+    startCommand: uv run --no-sync uvicorn lustjinn.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: UV_VERSION
+        value: "0.12.21"
+```
+
+- **The build** is the same `uv sync --locked` as CI, plus **`--no-dev`**: pytest, ruff and pyright
+  stay out of production.
+- **The start** runs uvicorn through `uv run --no-sync` — inside the environment the build created,
+  without checking it again. It binds to **`0.0.0.0`**, every network interface, because Render's
+  proxy reaches the process from outside the container; the default, `127.0.0.1`, would accept only
+  connections from inside. And it listens on **`$PORT`**, the port Render chooses.
+- **`healthCheckPath`** — Render calls `/health` to decide whether the service is up.
+- **`autoDeployTrigger: "off"`** — a push to GitHub alone deploys nothing; Forgejo decides when.
+
+::: dotnet
+`--host 0.0.0.0 --port $PORT` is Kestrel's `ASPNETCORE_URLS=http://+:$PORT` — the same lesson every
+container platform teaches: listen where the platform says, on every interface. And the blueprint is
+infrastructure as code, a very small Bicep file: the service lives in the repository, not only in a
+dashboard.
+:::
+
+::: warning
+The free tier has two properties the whole design respects. The service **sleeps** after about
+fifteen minutes without requests and takes 30–60 seconds to wake — which is why the future PWA is a
+separate static site that opens instantly and shows "waking the server". And it has **no persistent
+disk**: anything written to the filesystem disappears on the next deploy or restart. No SQLite, no
+files. From step 2, everything lives in Neon.
+:::
+
+### How a deploy travels
+
+Render builds from GitHub, but the code lives on Forgejo. A deploy is therefore started by hand, from
+Forgejo: *Actions → CI → Run workflow* on `develop`, with **deploy = staging**. The same workflow
+that runs the gates then runs one more job, `deploy-staging`, only if they all passed:
+
+1. **Push to the mirror.** `.forgejo/scripts/push-to-github.sh` pushes the commit to `develop` on
+   GitHub — fast-forward only, never forced. If GitHub has a commit Forgejo does not, the push is
+   refused and the deploy stops, rather than overwrite it.
+2. **Fire the hook.** A `POST` to Render's *deploy hook* — a secret URL — starts a build of what
+   GitHub now holds.
+3. **Wait for the right commit.** The job polls `/health` until the service reports *this* commit.
+   "The service is up" is not enough: the old version is up too, until the new one replaces it.
+
+The one-time setup — creating the service from the blueprint, the hook and token secrets in Forgejo —
+is in `docs/DEPLOYMENT.md`.
+
+### `/health` grows a field
+
+Step 3 of that list needs the service to say which commit it runs. Render provides it in an
+environment variable, `RENDER_GIT_COMMIT`, so `/health` now returns it:
+
+```python
+import os
+from typing import Literal
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI(title="Lustjinn")
+
+
+class Health(BaseModel):
+    status: Literal["ok"]
+    commit: str | None
+    """The deployed commit (Render's `RENDER_GIT_COMMIT`); None when not running on Render."""
+
+
+@app.get("/health")
+async def health() -> Health:
+    """Answers while the process is up. Render, the deploy job and the PWA poll it."""
+    return Health(status="ok", commit=os.environ.get("RENDER_GIT_COMMIT"))
+```
+
+This is the first **Pydantic model**. A class that inherits `BaseModel` declares its fields as
+annotated class attributes; Pydantic validates them when an instance is created and serialises them
+to JSON. FastAPI shows the model in the OpenAPI schema under its own name, `Health`.
+
+- **`Literal["ok"]`** — a type with exactly one allowed value. `Health(status="fine")` fails
+  validation, and pyright rejects it before it runs.
+- **`str | None`** — a string or nothing. `os.environ.get(...)` returns `None` when the variable is
+  not set, so off Render the answer is `{"status": "ok", "commit": null}`.
+
+::: dotnet
+`Health` is a `record Health(string Status, string? Commit)` with validation attached. `os.environ.get`
+is `Environment.GetEnvironmentVariable`, which also returns null when the variable is missing.
+`Literal["ok"]` has no direct C# counterpart; the nearest is a one-value enum.
+:::
+
+The tests grow with it:
+
+```python
+def test_health_reports_the_deployed_commit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "3d36977")
+
+    assert client.get("/health").json()["commit"] == "3d36977"
+
+
+def test_health_reports_no_commit_off_render(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+
+    assert client.get("/health").json() == {"status": "ok", "commit": None}
+```
+
+`monkeypatch` is a **fixture**: pytest sees a parameter with that name and passes in a ready-made
+object. `setenv` and `delenv` change the environment for this test only — pytest undoes both when
+it ends, so no test leaks state into the next.
+
+::: dotnet
+Fixtures are pytest's dependency injection — by parameter name, the way ASP.NET Core injects by type.
+xUnit's nearest equivalents are constructor injection and `IClassFixture<T>`; the automatic undo is
+what you would otherwise write in `Dispose()`.
+:::
+
+::: try
+Run the server with a commit of your own, in PowerShell:
+
+```powershell
+$env:RENDER_GIT_COMMIT = "hello"; uv run uvicorn lustjinn.main:app
+```
+
+`/health` now reports `"commit": "hello"`, and `/docs` shows the `Health` schema. Then try
+`Health(status="fine", commit=None)` in `main.py` and run `uv run pyright`.
+:::
+
+## What step 1 leaves behind
+
+- A Python 3.14 project managed by uv, locked, with a `src/` layout.
+- A FastAPI app with one endpoint, three tests, and four gates — all clean.
+- CI on Forgejo running the gates on every pull request and merge.
+- A deploy path to Render staging that refuses to run on red gates and checks what it deployed.
+
+**Next — Chapter 2, Stories and messages on Neon.** The first real data: settings from the
+environment, sign-in, SQLAlchemy models, the first Alembic migration, and a trigger that makes
+messages append-only.
