@@ -1,0 +1,50 @@
+[project]
+name = "lustjinn"
+version = "0.1.0"
+description = "Roleplay with a memory that does not forget."
+authors = [
+    { name = "Allan Gamboa", email = "argamboad@msn.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.142.2",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13.1",
+    "pyright>=1.1.414",
+    "pytest>=9.1.1",
+    "ruff>=0.16.10",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+# The course's code samples are illustrations, laid out by hand (aligned comments, fragments).
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle: the style basics
+    "F",        # pyflakes: unused names, undefined names
+    "I",        # isort: import order
+    "B",        # bugbear: likely bugs (mutable defaults, …)
+    "UP",       # pyupgrade: modern syntax for the pinned Python
+    "N",        # pep8-naming
+    "SIM",      # simplifications
+    "RUF",      # ruff's own rules
+    "ASYNC",    # blocking calls inside async functions — they freeze the event loop
+    "PT",       # pytest style
+]
+
+[tool.pyright]
+include = ["src", "tests"]
+typeCheckingMode = "strict"

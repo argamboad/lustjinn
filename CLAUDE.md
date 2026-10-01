@@ -23,6 +23,17 @@ sketch, the lessons airp paid for, and the roadmap.
 - **Never commit secrets.** They live in Render environment variables and a local `.env`
   (gitignored).
 
+## Commands
+- `uv sync` — environment from `uv.lock`. Python is pinned in `.python-version` (3.14).
+- `uv run uvicorn lustjinn.main:app --reload` — the API locally.
+- **The gates, all clean before any commit:** `uv run pytest`, `uv run ruff check`,
+  `uv run ruff format --check`, `uv run pyright` (strict).
+
+## Tracking
+- **Every piece of work has a Forgejo issue**, in the milestone of its roadmap step
+  (`Step N · …`). Create the issue before starting work that has none; PRs say `Closes #N`.
+- Labels follow the sibling repos: `type/*`, `area/*`, `needs-decision`, `owner/you`.
+
 ## Repository
 - `origin` is **Forgejo** (`ssh://git@localhost:2222/argamboad/lustjinn.git`); `github` is a mirror.
   Branch from `develop`; PRs and merges happen on Forgejo.

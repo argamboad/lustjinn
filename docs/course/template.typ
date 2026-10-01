@@ -104,8 +104,10 @@ $endif$
 #show raw.where(block: false): it => box(
   fill: surface, inset: (x: 2pt), outset: (y: 3pt), radius: 2pt, it,
 )
+// Blocks a little smaller than inline code, so a 100-character line (ruff's limit) fits the page.
+#show raw.where(block: true): set text(size: 7.8pt)
 #show raw.where(block: true): it => block(
-  width: 100%, fill: surface, inset: 10pt, radius: 4pt, stroke: 0.5pt + border, it,
+  width: 100%, fill: surface, inset: (x: 8pt, y: 9pt), radius: 4pt, stroke: 0.5pt + border, it,
 )
 
 // ---- Tables ----------------------------------------------------------------------------------
