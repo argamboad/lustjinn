@@ -1,4 +1,4 @@
-# lustee
+# Lustjinn
 
 A web app for roleplay with a memory that does not forget — a Python successor to **airp**
 (`argamboad/custom-airp`, .NET 10).

@@ -1,5 +1,5 @@
 # Local dev environment — never commit secrets.
-# `.env` alone does NOT match names like `lustee-staging.env`, so match any *.env too
+# `.env` alone does NOT match names like `lustjinn-staging.env`, so match any *.env too
 # (`.env.example` is unaffected — it ends in .example — and stays committed).
 .env
 *.env

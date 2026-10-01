@@ -15,8 +15,7 @@ takes the good parts of **airp** (`argamboad/custom-airp`, .NET 10) and rebuilds
 understanding. The owner is an experienced C#/.NET developer (ASP.NET Core, EF Core, xUnit), so:
 
 - Explain Python by **mapping it to the .NET equivalent** he already knows.
-- Prefer teaching over generating: explain a piece, let him write it, review it. Scaffolding the
-  boring parts (layout, tooling, CI) is fine. Ask which mode he wants when it matters.
+- Claude writes the code, and a course explains it (see *Settled before step 1*, below).
 - **One change at a time**, confirmed before moving on. **Do not invent and do not assume**: if a
   fact is missing, ask.
 
@@ -226,15 +225,19 @@ CI runs them on every push, and the deployed URL answers `GET /health`.
 
 ---
 
-## Open decisions — ask before step 1
+## Settled before step 1 (2026-10-01)
 
-1. **Working mode:** tutor (he writes, Claude explains and reviews), pair, or mixed (Claude
-   scaffolds tooling, he writes the logic)?
-2. **Where the repo lives.** The owner's personal repos default to **Forgejo** as `origin` with a
-   GitHub mirror; Render deploys from GitHub. Confirm that pattern applies here.
-3. **The project's name.**
-4. **Authentication for a single user:** a long random token in a Render environment variable,
-   entered once in the PWA and kept on the device, is the simplest fit for the bearer-token
-   constraint above. Confirm, or choose otherwise.
-5. **Svelte 5** (runes: `$state`, `$derived`) from the start — and beware that many examples online
-   still use Svelte 4 syntax.
+1. **Working mode: Claude writes the code.** The learning happens through **the course**: a PDF
+   (source in `docs/course/`) that explains every step as it is built, mapped to .NET. It is kept up
+   to date — a change that teaches something updates its chapter in the same commit.
+2. **Where the repo lives:** Forgejo `argamboad/lustjinn` is `origin`; GitHub `argamboad/lustjinn`
+   (private) is the mirror Render deploys from. Default branch `develop`.
+3. **The name:** **Lustjinn** — lust + djinn. `lustjinn` in code, repositories and file names. It
+   replaced the working name *lustee*.
+4. **Authentication: a username and a password** in environment variables (Render in production,
+   `.env` locally). The PWA signs in once with them and receives a **bearer token** it keeps on the
+   device — which keeps the bearer-token constraint above. The details (token format, lifetime,
+   the signing secret) are decided when auth is built.
+5. **Svelte 5**, latest, runes (`$state`, `$derived`) from the start — and beware that many
+   examples online still use Svelte 4 syntax.
+6. **The UI is dark** and should look good — designed, not default.
