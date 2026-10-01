@@ -1,0 +1,20 @@
+# Render blueprint — free-tier staging for the API. Spec: https://render.com/docs/blueprint-spec
+# Applied once from the Render dashboard (docs/DEPLOYMENT.md). After that, deploys are driven by
+# Forgejo: ci.yml with deploy=staging pushes develop to the GitHub mirror, then calls this service's
+# deploy hook. A push to GitHub alone deploys nothing.
+#
+# Free tier: the service sleeps after ~15 min idle and takes ~30–60 s to wake, and it has no
+# persistent disk — nothing may be written to the filesystem (the data lives in Neon, from step 2).
+services:
+  - type: web
+    name: lustjinn-staging
+    runtime: python                 # Python from .python-version; uv, because uv.lock exists
+    plan: free
+    branch: develop
+    buildCommand: uv sync --locked --no-dev
+    startCommand: uv run --no-sync uvicorn lustjinn.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    autoDeployTrigger: "off"        # quoted: bare `off` is a boolean to some YAML parsers
+    envVars:
+      - key: UV_VERSION
+        value: "0.12.21"            # the same uv as development and CI

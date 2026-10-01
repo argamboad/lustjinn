@@ -5,6 +5,9 @@
 #   - Unspecified shells are pinned to GitHub's `bash -e {0}` (Forgejo's default adds pipefail).
 #   - No `permissions:` key (Forgejo ignores it), so the job token is treated as able to write:
 #     the checkout keeps no credentials.
+#   - Deploys run ONLY from "Run workflow" (`deploy` input), never on a push, and only after the
+#     gates are green: push the commit to the same branch on GitHub (Render builds from there), fire
+#     the Render hook, wait until the service reports this commit. Setup: docs/DEPLOYMENT.md.
 name: CI
 
 on:
@@ -13,6 +16,12 @@ on:
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy after the gates are green (staging deploys from develop)
+        type: choice
+        default: none
+        options: [none, staging]
 
 defaults:
   run:
@@ -52,3 +61,68 @@ jobs:
 
       - name: pytest
         run: uv run pytest
+
+  deploy-staging:
+    needs: gates
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'staging'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: true
+    env:
+      HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_STAGING }}
+    steps:
+      - name: Staging deploys from develop
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/develop" ]; then
+            echo "::error::staging deploys from develop — this run is on ${{ github.ref }}."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # the push to GitHub needs the history, not a shallow tip
+
+      - name: Push develop to the GitHub mirror
+        env:
+          MIRROR_TOKEN: ${{ secrets.DEPLOY_MIRROR_TOKEN }}
+          MIRROR_REPO: ${{ vars.DEPLOY_MIRROR_REPO }}
+        run: bash .forgejo/scripts/push-to-github.sh develop
+
+      - name: Trigger the Render deploy
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::no RENDER_DEPLOY_HOOK_STAGING secret — nothing to deploy."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null
+          echo "Triggered the Render staging deploy."
+
+      # /health reports RENDER_GIT_COMMIT, so "up" is not enough: it must be up with THIS commit.
+      # 15 minutes covers a free-tier build plus a cold start.
+      - name: Wait until staging serves this commit
+        env:
+          BASE: ${{ vars.STAGING_BASE_URL }}
+          EXPECT: ${{ github.sha }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::no deploy was triggered, nothing to wait for."
+            exit 0
+          fi
+          if [ -z "$BASE" ]; then
+            echo "::error::a deploy was triggered but STAGING_BASE_URL is not set — it cannot be verified."
+            exit 1
+          fi
+          deadline=$((SECONDS + 900))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            got=$(curl -fsS --max-time 70 "$BASE/health" 2> /dev/null | jq -r '.commit // empty' || true)
+            if [ "$got" = "$EXPECT" ]; then
+              echo "Staging serves $EXPECT."
+              exit 0
+            fi
+            echo "staging reports '${got:-nothing}', waiting for $EXPECT…"
+            sleep 15
+          done
+          echo "::error::staging did not report $EXPECT within 15 minutes — check the deploy in Render's dashboard."
+          exit 1
