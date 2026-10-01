@@ -1,0 +1,33 @@
+# Local dev environment — never commit secrets.
+# `.env` alone does NOT match names like `lustee-staging.env`, so match any *.env too
+# (`.env.example` is unaffected — it ends in .example — and stays committed).
+.env
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node / SvelteKit (the front end)
+node_modules/
+.svelte-kit/
+
+# Editors
+.vs/
+.idea/
+.vscode/settings.json
+
+# Agent tooling
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

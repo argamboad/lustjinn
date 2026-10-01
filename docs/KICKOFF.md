@@ -1,0 +1,240 @@
+# Kickoff — an airp successor, in Python
+
+A brief for starting this project in a new repository and a new session. Read it whole before the
+first task. It carries over the decisions already made and the lessons a previous project paid for,
+so they are not re-learned.
+
+---
+
+## What this is
+
+A web app for **NSFW roleplay with a memory that does not forget**, built as a side project that
+takes the good parts of **airp** (`argamboad/custom-airp`, .NET 10) and rebuilds them in Python.
+
+**The real goal is learning: Python, especially as a backend.** Shipping matters less than
+understanding. The owner is an experienced C#/.NET developer (ASP.NET Core, EF Core, xUnit), so:
+
+- Explain Python by **mapping it to the .NET equivalent** he already knows.
+- Prefer teaching over generating: explain a piece, let him write it, review it. Scaffolding the
+  boring parts (layout, tooling, CI) is fine. Ask which mode he wants when it matters.
+- **One change at a time**, confirmed before moving on. **Do not invent and do not assume**: if a
+  fact is missing, ask.
+
+The thesis carried over from airp:
+
+> You do not need an infinite context window if you have a good retrieval layer.
+
+---
+
+## Decided
+
+| Layer | Choice | Why |
+|---|---|---|
+| Language | Python (current version) | The point of the project |
+| Tooling | **uv**, **ruff** (lint + format), **pyright** strict | uv ≈ `dotnet` CLI + NuGet. Strict types are the stand-in for `TreatWarningsAsErrors` and nullable reference types |
+| API | **FastAPI** on **uvicorn** | ≈ ASP.NET minimal APIs: async, DI, OpenAPI built in |
+| Models, settings | **Pydantic**, **pydantic-settings** | ≈ records with validation, `IOptions<T>` |
+| Database | **Neon Postgres** (free tier) + **pgvector** | Already used and liked. Does not expire, wakes in ~1 s, vector search included |
+| Data access | **SQLAlchemy 2.0** (async) + **Alembic** | ≈ EF Core + migrations. Worth also seeing plain SQL with `psycopg` once |
+| Model API | **OpenRouter** via **httpx**, replies streamed over **SSE** | Same provider as airp; embeddings through it too |
+| Token counting | **tiktoken** `o200k_base` | Same vocabulary airp counts with |
+| Tests | **pytest**, **respx** for faked HTTP | ≈ xUnit, NSubstitute |
+| Front end | **SvelteKit**, built static (`adapter-static`), as a **PWA** | Close to plain HTML; light on a phone; installable without an app store |
+| Hosting | **Render free tier**: API as a web service (sleeps; that is accepted), front end as a **static site** (does not sleep) | $0/month. The UI opens instantly and shows "waking the server…" |
+| Secrets | Render environment variables | Never in the repository |
+
+**Considered and set aside, with the reason:**
+
+- **MongoDB.** The data looks document-shaped, but what makes it work is relational: append-only
+  rules, an insert-only ledger, facts with validity ranges, joins. Postgres enforces those itself.
+- **Flutter.** Flutter web draws text on a canvas — heavy, and poor for long scrolling prose. And
+  the app stores do not accept an NSFW roleplay app, so its mobile half would buy little.
+- **Next.js.** Its strengths need a running Node server, i.e. a second backend that also sleeps.
+  As a static export it is just React with extra weight. React + Vite would be the fair
+  alternative if React experience ever matters more than Svelte's simplicity.
+- **FastAPI + Jinja2 + htmx.** A real option (all Python, no JS framework), set aside because the
+  whole app would sleep — a blank tab for 30–60 s after every quiet spell — and there is no offline.
+
+---
+
+## Hosting facts that shape the design
+
+Verify each against the providers' current docs before relying on it; they have changed before.
+
+- **Render free web services sleep** after idling and take ~30–60 s to wake. **Static sites do not
+  sleep.**
+- **Render's free tier has no persistent disk.** Nothing may be stored on the filesystem: no
+  SQLite, no library files. Everything lives in Neon.
+- **Render's free Postgres expires** about a month after creation. That is why the database is Neon.
+- **`onrender.com` is on the Public Suffix List**, so `app.onrender.com` and `api.onrender.com` are
+  *different sites* to a browser. Cookies set by the API are third-party and increasingly blocked.
+  → Authenticate with a **bearer token in the `Authorization` header**, and configure **CORS** in
+  FastAPI. A custom domain later would remove the issue.
+- **Neon:** use its **own project** (or at least its own branch), separate from anything else
+  already there. `CREATE EXTENSION vector;` enables pgvector. Use the connection string with SSL.
+- **Check Render's and Neon's acceptable-use policies on sexual content** before committing real
+  stories. Not known; do not guess.
+- **Privacy is a deliberate trade:** airp kept the history on the owner's own machine. This keeps
+  it in someone else's cloud.
+
+---
+
+## The data model (first sketch)
+
+The library moves from text files into tables, and several things airp enforced in code become
+database rules.
+
+```sql
+characters (id, name, card TEXT, opening TEXT NULL, version INT, updated_at)
+personas   (id, name, text TEXT, version INT, updated_at)
+snippets   (id, name, text TEXT, version INT, updated_at)
+-- names unique without regard to case: a unique index on lower(name)
+
+library_history (id, kind, entry_id, text, opening, saved_at)        -- insert-only
+
+settings (default_persona_id → personas)
+
+stories  (id, name, character_id → characters ON DELETE RESTRICT,
+                    persona_id   → personas   ON DELETE RESTRICT NULL,
+                    model NULL, created_at, deleted_at NULL)
+
+messages (id, story_id, sequence, role, text, request_hash UNIQUE NULL,
+          model, provider, prompt_tokens, completion_tokens,
+          estimated_prompt_tokens, context_audit, sent_at, deleted_at NULL)
+
+summaries  (id, story_id, from_sequence, to_sequence, text, created_at)
+facts      (id, story_id, subject, text, valid_from, valid_to NULL, pinned)
+embeddings (message_id, vector VECTOR(1536))                         -- HNSW index
+spend      (id, story_id, kind, model, provider, cost NULL,
+            prompt_tokens, cached_tokens, completion_tokens, at)    -- insert-only
+asides     (id, story_id, question, answer, asked_at)               -- never enters a prompt
+```
+
+**Improvements over airp that the database gives for free:**
+
+| airp (files, C#) | Here (Postgres) |
+|---|---|
+| A story stores the character's *name*, so renaming is impossible | A story stores the *id*: renaming is free |
+| "Not while a story uses it" checked in code, per front end | `ON DELETE RESTRICT`: the database refuses |
+| An opening belongs to a character because file names match; orphans happen | The opening is a column on the character: no orphans possible |
+| One `.bak` of the last save | `library_history` keeps every saved version |
+| Concurrent edits caught by hashing the file | `UPDATE … WHERE id = $1 AND version = $2`; zero rows means someone saved first |
+| Append-only enforced in `SaveChanges` | A trigger rejects `DELETE` and any `UPDATE` of `messages.text`; hiding is `deleted_at` |
+
+**Kept on purpose:** stories reference the library **live** — editing a card reaches every story
+from its next turn. The default persona applies to any story that picks none. Snippets are copied
+into a message when used and never read again.
+
+**Not now:** airp's "a story's own text wins over the file". A duplicated card does the same job;
+add it only if it is missed.
+
+---
+
+## Lessons carried over from airp
+
+Each was measured on real stories and cost real time. Do not re-learn them.
+
+**The prompt**
+
+- **Layers ordered from least to most volatile** — character, persona, directives (dials), world
+  facts, summaries, history, recalled memories, trackers, instruction. A provider's prefix cache
+  keeps everything up to the first thing that changed; retrieval in the middle would break the
+  cache every turn.
+- **A budget far below the model's window** (airp: 32,000 tokens by default). Attention thins out,
+  and every token is paid for on every turn.
+- **When the budget is tight, the transcript gives way, oldest first** — but **the newest turn is
+  always kept**, even over budget. A real story once lost the reader's own message from its prompt.
+- **Recalled memories are capped at a share of the budget** (airp: 10%), not just by count: four
+  long recalled turns once filled a 60,000-token prompt.
+- **Count tokens with the real vocabulary**, never a characters-per-token constant: Spanish and
+  English differ by ~30%.
+
+**The memory**
+
+- Three mechanisms, each answering a different question: **summaries** (what happened),
+  **retrieval** (what was said — embeddings over *already-summarised* turns only), **facts** (what
+  is true now, with `valid_from`/`valid_to`).
+- **They fire only when needed**; a story that fits its budget costs no extra call.
+- **Compress in batches: at least 10 messages, at most 40, never the 6 newest.** Compressing only
+  the overflow ran every turn on two messages; a single call over 99 messages came back as `##`.
+- **Refuse a summary too short to account for what it replaces** (a compression ratio above ~60×;
+  working ones run 3–19×). If compression fails, **go over budget rather than discard**.
+- **Summaries at temperature 0.3, facts at 0.2.** A creative summariser invents history the
+  character then believes. Output ceilings: 1,200 tokens for a summary, 4,000 for fact extraction
+  (a reasoning model thinks first).
+- **Hand-written facts are pinned**: the extractor cannot retire them.
+- **Name the reader by their persona, never "User"**, in anything a model reads.
+- **Background calls retry once**, only for failures a retry could fix (timeouts, 408, 429, 5xx,
+  a 200 with no content).
+- **Every test of the memory must use a real character of realistic size.** airp's tests set a
+  four-token card inline, and missed a bug that cost a real story twenty-four turns of memory.
+
+**The data**
+
+- **Persist the reader's turn before calling the model.** A failed call never loses what was written.
+- **Idempotency by request hash, anchored on the last reply** — not on the next free position,
+  which changes on retry.
+- **Messages are append-only**; a reroll hides the old reply and keeps it for the audit.
+- **Spend is a ledger**, one row per billed call whatever became of it. **Read the real cost from
+  `usage.cost` in each response; never compute it from a price list** — prices change daily, hosts
+  differ, caching discounts.
+- **An out-of-character question (`/ask`) is never a turn**: stored apart, never in a prompt.
+- **Audit every reply**: per-layer token breakdown, estimate against the reported figure.
+
+**The models**
+
+- **Criterion #1: uncensored.** Prose second, cost a distant third. A refusing summariser is a
+  character that forgets.
+- **Default: DeepSeek V4 Flash** on OpenRouter.
+- **Send `reasoning: {enabled: false}` on replies and `/ask`.** Without it, the default came back
+  empty 3 times in 5 at a 400-token ceiling, every token spent thinking.
+- **Temperature depends on the model.** Roleplay finetunes wrote cleanly up to 0.9 and turned to
+  token soup at 1.3; DeepSeek holds at 1.3.
+- **OpenRouter spreads a model across hosts**, and they differ: some cache prompts and some do not,
+  some return empty replies or garbage. Store `provider` per reply, and allow ignoring or
+  preferring hosts by slug.
+- **Every instruction sent to the model must say what it is** — an out-of-character direction — and
+  that the reply must be the scene itself. A bare directive gets echoed back as the reply.
+- **Slash commands that are not recognised are refused, never sent.** A typo must never become a
+  permanent, billed turn.
+
+---
+
+## Roadmap
+
+Each step teaches one thing, and the app grows with it. Steps 1–3 already give something playable.
+
+1. **Hello, deployed.** uv project, FastAPI with one endpoint, one pytest test, ruff + pyright in
+   CI, deployed to Render. *Teaches: layout, uv, uvicorn, how Python is served.*
+2. **Stories and messages on Neon.** SQLAlchemy models, an Alembic migration, the append-only
+   trigger in SQL. *Teaches: the ORM, async sessions, transactions.*
+3. **One turn against OpenRouter.** httpx, the reply streamed over SSE, the turn persisted first,
+   the spend row from `usage.cost`. *Teaches: async I/O, streaming, error handling.*
+4. **The library.** Characters (with their opening), personas, snippets; optimistic concurrency;
+   history. Plus a one-off import script for airp's library (~35 cards, ~1 MB; openings attach
+   to the character of the same name, unmatched ones are reported, not guessed). *Teaches:
+   foreign keys, constraints, scripts.*
+5. **The context builder.** Layers in order, the budget with tiktoken, the newest turn always kept.
+   *Teaches: pure logic, fixtures, dataclasses — mostly tests.*
+6. **The memory.** Batched summaries, pgvector retrieval, facts. *Teaches: background work, vector
+   queries, larger design.*
+7. **The SvelteKit PWA.** Story list, reading and writing with streamed replies, the library
+   editor, a "waking the server" screen, installable on the phone.
+
+**Definition of done for step 1:** `uv run pytest` passes, `ruff check` and `pyright` are clean,
+CI runs them on every push, and the deployed URL answers `GET /health`.
+
+---
+
+## Open decisions — ask before step 1
+
+1. **Working mode:** tutor (he writes, Claude explains and reviews), pair, or mixed (Claude
+   scaffolds tooling, he writes the logic)?
+2. **Where the repo lives.** The owner's personal repos default to **Forgejo** as `origin` with a
+   GitHub mirror; Render deploys from GitHub. Confirm that pattern applies here.
+3. **The project's name.**
+4. **Authentication for a single user:** a long random token in a Render environment variable,
+   entered once in the PWA and kept on the device, is the simplest fit for the bearer-token
+   constraint above. Confirm, or choose otherwise.
+5. **Svelte 5** (runes: `$state`, `$derived`) from the start — and beware that many examples online
+   still use Svelte 4 syntax.
