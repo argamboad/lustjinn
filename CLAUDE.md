@@ -32,7 +32,7 @@ sketch, the lessons airp paid for, and the roadmap.
 - **One PR per roadmap step, one commit per issue.** Branch `step/N-…` from `develop`; each issue of
   the step is exactly one commit (its message says `Closes #N`), the course chapter included. Open the
   PR when every issue of the step is in it.
-- **After each merge, stop.** Sync `develop`, delete the merged branch (locally and on Forgejo),
+- **After each merge, stop.** Sync `develop`, delete the merged branch (locally and on GitHub),
   report where things stand, and wait for the owner to choose what comes next. No autopilot: never
   start the next issue or step unasked, and never stack a PR on an unmerged one.
 
@@ -43,6 +43,7 @@ sketch, the lessons airp paid for, and the roadmap.
 - Labels follow the sibling repos: `type/*`, `area/*`, `needs-decision`, `owner/you`.
 
 ## Repository
-- `origin` is **Forgejo** (`ssh://git@localhost:2222/argamboad/lustjinn.git`); `github` is a mirror.
-  Branch from `develop`; PRs and merges happen on Forgejo.
+- `origin` is **GitHub** (`https://github.com/argamboad/lustjinn.git`, private). Branch from
+  `develop`; PRs and merges happen on GitHub. Actions minutes are billed: CI runs on PRs and on
+  `main`, never on a `develop` push. `forgejo` is the old remote, kept until Forgejo is retired.
 - Branches: `main` (production), `develop` (integration).

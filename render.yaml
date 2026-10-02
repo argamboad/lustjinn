@@ -1,7 +1,7 @@
 # Render blueprint — free-tier staging for the API. Spec: https://render.com/docs/blueprint-spec
 # Applied once from the Render dashboard (docs/DEPLOYMENT.md). After that, deploys are driven by
-# Forgejo: ci.yml with deploy=staging pushes develop to the GitHub mirror, then calls this service's
-# deploy hook. A push to GitHub alone deploys nothing.
+# GitHub Actions: ci.yml with deploy=staging runs the gates, then calls this service's deploy hook.
+# A push alone deploys nothing.
 #
 # Free tier: the service sleeps after ~15 min idle and takes ~30–60 s to wake, and it has no
 # persistent disk — nothing may be written to the filesystem (the data lives in Neon, from step 2).

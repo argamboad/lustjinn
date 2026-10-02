@@ -1,18 +1,17 @@
-# The gates, run by the self-hosted Forgejo (origin) on every push to develop/main and on every pull
-# request into them. GitHub is only a mirror: this lives in .forgejo/, which GitHub ignores, so the
-# mirror never spends Actions minutes. Conventions shared with the sibling repos:
-#   - `ubuntu-latest` is the runner's container image (catthehacker/ubuntu act-24.04 + extras).
-#   - Unspecified shells are pinned to GitHub's `bash -e {0}` (Forgejo's default adds pipefail).
-#   - No `permissions:` key (Forgejo ignores it), so the job token is treated as able to write:
-#     the checkout keeps no credentials.
+# The gates, run by GitHub Actions on every pull request into develop/main and on pushes to main.
+# The repo is private, so every minute is billed against the account's monthly allowance:
+#   - No `push: develop` trigger: develop only moves by merging a PR whose gates already ran.
+#   - A new push to a PR cancels that PR's previous run (`concurrency` below).
+#   - Every job has a `timeout-minutes`; the default is 6 hours.
+#   - Unspecified shells are pinned to `bash -e {0}`.
 #   - Deploys run ONLY from "Run workflow" (`deploy` input), never on a push, and only after the
-#     gates are green: push the commit to the same branch on GitHub (Render builds from there), fire
-#     the Render hook, wait until the service reports this commit. Setup: docs/DEPLOYMENT.md.
+#     gates are green: fire the Render hook, wait until the service reports this commit. Render
+#     builds from this repo's branch. Setup: docs/DEPLOYMENT.md.
 name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -23,6 +22,14 @@ on:
         default: none
         options: [none, staging]
 
+permissions:
+  contents: read
+
+concurrency:
+  # One group per PR; pushes and dispatches each get their own, so they are never cancelled.
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 defaults:
   run:
     shell: bash -e {0}
@@ -30,9 +37,9 @@ defaults:
 jobs:
   gates:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
-      # Same uv as the development machine. Installed from Astral's script, not the setup-uv action:
-      # the script downloads one pinned release and never calls GitHub's API with a Forgejo token.
+      # Same uv as the development machine, installed from Astral's pinned release script.
       UV_VERSION: "0.12.21"
     steps:
       - uses: actions/checkout@v5
@@ -66,6 +73,7 @@ jobs:
     needs: gates
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'staging'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     concurrency:
       group: deploy-staging
       cancel-in-progress: true
@@ -78,17 +86,6 @@ jobs:
             echo "::error::staging deploys from develop — this run is on ${{ github.ref }}."
             exit 1
           fi
-
-      - uses: actions/checkout@v5
-        with:
-          persist-credentials: false
-          fetch-depth: 0 # the push to GitHub needs the history, not a shallow tip
-
-      - name: Push develop to the GitHub mirror
-        env:
-          MIRROR_TOKEN: ${{ secrets.DEPLOY_MIRROR_TOKEN }}
-          MIRROR_REPO: ${{ vars.DEPLOY_MIRROR_REPO }}
-        run: bash .forgejo/scripts/push-to-github.sh develop
 
       - name: Trigger the Render deploy
         run: |
