@@ -16,12 +16,15 @@ import pytest
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config
+from pydantic import SecretStr
 from sqlalchemy import Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from lustjinn.auth import issue_token
 from lustjinn.db import get_session
 from lustjinn.main import app
+from lustjinn.settings import Settings, get_settings
 from scripts.seed_dummy import Dummy, load
 
 # Any database on the server will do to connect to; the tests create their own beside it.
@@ -88,18 +91,44 @@ async def session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
         await transaction.rollback()
 
 
+@pytest.fixture(scope="session")
+def settings(database_url: str) -> Settings:
+    """Settings made here, by hand — never read from the machine's environment or `.env`."""
+    return Settings(
+        database_url=database_url,
+        username="reader",
+        password=SecretStr("correct horse battery staple"),
+        token_secret=SecretStr("a-test-secret-that-is-long-enough-to-pass"),
+        _env_file=None,  # pyright: ignore[reportCallIssue] — a real argument, hidden from the checker
+    )
+
+
 @pytest_asyncio.fixture
-async def client(session: AsyncSession) -> AsyncGenerator[httpx2.AsyncClient]:
-    """An HTTP client that calls the app in-process, with the app using the test's session."""
+async def anonymous(
+    session: AsyncSession, settings: Settings
+) -> AsyncGenerator[httpx2.AsyncClient]:
+    """An HTTP client that calls the app in-process and has not signed in.
+
+    The app is given the test's session and the test's settings in place of its own: FastAPI
+    swaps whatever a `Depends(...)` names for the override registered here.
+    """
 
     async def use_the_tests_session() -> AsyncGenerator[AsyncSession]:
         yield session
 
     app.dependency_overrides[get_session] = use_the_tests_session
+    app.dependency_overrides[get_settings] = lambda: settings
     transport = httpx2.ASGITransport(app=app)
     async with httpx2.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
     app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def client(anonymous: httpx2.AsyncClient, settings: Settings) -> httpx2.AsyncClient:
+    """The same client, signed in: every request carries a valid token."""
+    anonymous.headers["Authorization"] = f"Bearer {issue_token(settings).access_token}"
+    return anonymous
 
 
 @pytest.fixture(scope="session")
