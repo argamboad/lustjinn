@@ -46,14 +46,14 @@ nearby; later chapters assume it.
 | Roslyn analyzers, `dotnet format` | **ruff** | Linter and formatter in one |
 | The compiler + nullable reference types | **pyright** (strict) | The type checker |
 | xUnit | **pytest** | Tests |
-| NSubstitute, a fake `HttpMessageHandler` | **respx** | Fakes HTTP calls in tests |
+| A fake `HttpMessageHandler` | **httpx2's `MockTransport`** | Fakes HTTP calls in tests |
 | Kestrel | **uvicorn** | The web server that runs the app |
 | ASP.NET Core minimal APIs | **FastAPI** | Routing, model binding, DI, OpenAPI |
 | `record` + DataAnnotations | **Pydantic** models | Typed data with validation |
 | `IOptions<T>` | **pydantic-settings** | Typed configuration from the environment |
 | EF Core | **SQLAlchemy 2.0** | ORM and query builder |
 | EF Core migrations | **Alembic** | Schema migrations |
-| `HttpClient` | **httpx** | HTTP client, sync and async |
+| `HttpClient` | **httpx2** | HTTP client, sync and async |
 | `Task`, `async`/`await` | **asyncio** coroutines | Asynchronous code |
 
 The table is a starting point, not a promise. The rest of this chapter covers the four places
@@ -114,7 +114,7 @@ installs exactly what `uv.lock` says, and runs commands inside that environment:
 
 ```
 uv sync              # make .venv match uv.lock           ≈ dotnet restore
-uv add httpx         # add a dependency, update the lock  ≈ dotnet add package
+uv add httpx2        # add a dependency, update the lock  ≈ dotnet add package
 uv run pytest        # run a command inside .venv         ≈ dotnet test
 uv python install    # fetch the pinned Python version    ≈ installing an SDK
 ```
@@ -141,7 +141,7 @@ async def handler():
     await asyncio.sleep(2)   # Yields to the loop: other requests keep running.
 ```
 
-This is why Lustjinn uses the async versions of everything that waits: **httpx**'s
+This is why Lustjinn uses the async versions of everything that waits: **httpx2**'s
 `AsyncClient`, SQLAlchemy's async engine, an async Postgres driver.
 
 ::: dotnet
