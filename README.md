@@ -30,6 +30,11 @@ takes what the reader typed and streams the reply back as server-sent events; `/
 asks about the story out of character, and any other slash command is refused. `POST
 /stories/{id}/reroll` writes the newest reply again.
 
+The library is under `/library/{characters|personas|snippets}`: list, create, read, save (with
+the version the editor started from), delete (refused while a story uses the entry), and each
+entry's history. `/library/settings` names the default persona. A `:name` in a message expands
+to the snippet of that name before it is stored.
+
 ## The gates
 
 ```
