@@ -15,9 +15,10 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.orm.exc import StaleDataError
 
 from lustjinn.db import get_session
@@ -227,9 +228,22 @@ async def used_by(session: AsyncSession, shelf: Shelf[Any], entry: LibraryEntry)
     else:
         return []
     names = await session.scalars(
-        select(Story.name).where(condition, Story.deleted_at.is_(None)).order_by(Story.name)
+        select(Story.name)
+        .where(condition, Story.deleted_at.is_(None))
+        .order_by(alphabetical(Story.name))
     )
     return list(names)
+
+
+def alphabetical(name: InstrumentedAttribute[str]) -> ColumnElement[str]:
+    """The order a reader expects, the same on every server.
+
+    Left to itself, Postgres sorts by the collation its database was created with, and those
+    disagree: one ignores a leading underscore, another puts accented letters after `z`.
+    `und-x-icu` is ICU's language-neutral order — punctuation, digits, then letters without
+    regard to case, accents beside their base letter.
+    """
+    return name.collate("und-x-icu")
 
 
 def _opening(given: str | None) -> str | None:
@@ -295,7 +309,7 @@ async def list_entries(
     shelf: OnShelf, session: Session, hidden: bool = False
 ) -> list[EntrySummary]:
     """The shelf, alphabetically. Names starting with `_` only when `hidden` is asked for."""
-    query = select(shelf.model).order_by(func.lower(shelf.model.name))
+    query = select(shelf.model).order_by(alphabetical(shelf.model.name))
     if not hidden:
         # autoescape: `_` is a wildcard in LIKE, which `startswith` compiles to.
         query = query.where(~shelf.model.name.startswith("_", autoescape=True))
