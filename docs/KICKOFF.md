@@ -255,8 +255,9 @@ CI runs them on every push, and the deployed URL answers `GET /health`.
 1. **Working mode: Claude writes the code.** The learning happens through **the course**: a PDF
    (source in `docs/course/`) that explains every step as it is built, mapped to .NET. It is kept up
    to date — a change that teaches something updates its chapter in the same commit.
-2. **Where the repo lives:** Forgejo `argamboad/lustjinn` is `origin`; GitHub `argamboad/lustjinn`
-   (private) is the mirror Render deploys from. Default branch `develop`.
+2. **Where the repo lives:** GitHub, `argamboad/lustjinn`, private (since 2026-10-02; it began on a
+   self-hosted Forgejo, now retired). `develop` is the default branch and every pull request merges
+   into it; `main` is for releases only. Render deploys from this repository.
 3. **The name:** **Lustjinn** — lust + djinn. `lustjinn` in code, repositories and file names. It
    replaced the working name *lustee*.
 4. **Authentication: a username and a password** in environment variables (Render in production,

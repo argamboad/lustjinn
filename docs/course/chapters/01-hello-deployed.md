@@ -1,14 +1,15 @@
 # Hello, deployed
 
 The goal of step 1 is the smallest thing that is real: a Python web app with one endpoint, one
-test, the quality gates, and a public URL that answers. Nothing about roleplay yet. Everything
+test, the quality gates, and a path to a public URL. Nothing about roleplay yet. Everything
 later grows out of this skeleton, so it is worth understanding every file in it.
 
 The step landed in three pieces, and this chapter follows them in order:
 
 1. **The project** — uv, FastAPI, one endpoint, one test, ruff and pyright.
-2. **CI** — the gates running on Forgejo on every push.
-3. **The deploy** — Render serving the app from the GitHub mirror.
+2. **CI** — the gates running on GitHub Actions on every pull request.
+3. **The deploy** — the path to Render, built and waiting: the project runs locally until it is
+   ready for the cloud.
 
 ## What uv created
 
@@ -237,23 +238,28 @@ Then, in `main.py`, change the return to `{"status": 1}` and run `uv run pyright
 says `dict[str, str]`; pyright says no. Change it back.
 :::
 
-## CI on Forgejo
+## CI on GitHub Actions
 
 The gates are only worth something if nothing reaches `develop` without passing them. A workflow
-in `.forgejo/workflows/ci.yml` runs all four on Forgejo, the self-hosted forge that is `origin`:
+in `.github/workflows/ci.yml` runs all four on GitHub, where the repository lives:
 
 ```yaml
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   gates:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
-      UV_VERSION: "0.12.21"
+      UV_VERSION: "0.12.22"
     steps:
       - uses: actions/checkout@v5
         with:
@@ -274,14 +280,17 @@ jobs:
         run: uv run pytest
 ```
 
-The syntax is GitHub Actions'; Forgejo runs the same files. Reading it top to bottom:
+Reading it top to bottom:
 
-- **`on`** — a pull request into `develop` or `main` runs the gates, and so does the push that lands
-  when it merges. Pushes to a feature branch alone do not: the pull request covers them, without
-  running everything twice.
-- **`runs-on: ubuntu-latest`** — on this forge, the name of a Linux container image on the runner.
-  Each run starts from a fresh container, and uv and the project's Python come from the steps
-  below — so a green run proves the project builds from its committed files alone.
+- **`on`** — a pull request into `develop` or `main` runs the gates. A push to `develop` does
+  **not**: `develop` only moves by merging a pull request whose gates already ran, so running them
+  again would test the same code twice. A push to `main` — a release — does.
+- **`concurrency`** — a new push to a pull request cancels that pull request's previous run. Only
+  the newest commit's result matters.
+- **`runs-on: ubuntu-latest`** — a fresh Linux virtual machine for every run. uv and the project's
+  Python come from the steps below, so a green run proves the project builds from its committed
+  files alone.
+- **`timeout-minutes`** — a stuck job stops after ten minutes. The default is six hours.
 - **Install uv** — one pinned release, the same version as on the development machine. Python then
   comes from uv, exactly as on Windows: `uv sync` reads `.python-version` and fetches 3.14.
 - **`uv sync --locked`** — creates the environment from `uv.lock`, and **fails** if the lock no
@@ -292,22 +301,23 @@ The syntax is GitHub Actions'; Forgejo runs the same files. Reading it top to bo
 
 ::: dotnet
 `uv sync --locked` is `dotnet restore --locked-mode`: restore exactly what the lock file says, or
-fail. And the workflow as a whole is the YAML pipeline you would write for Azure DevOps or GitHub
-Actions around `dotnet build` and `dotnet test` — with `uv sync` as the restore and pyright and
-ruff standing in for the build.
+fail. And the workflow as a whole is the pipeline you would write around `dotnet build` and
+`dotnet test` — with `uv sync` as the restore and pyright and ruff standing in for the build.
 :::
 
 ::: note
-The workflow lives in `.forgejo/`, not `.github/`. GitHub ignores `.forgejo/`, so the GitHub mirror —
-which only exists for Render to deploy from — never runs it and never spends Actions minutes. The
-other house conventions (the `bash -e` shell, a checkout that keeps no credentials) are shared with
-the owner's other repositories.
+The repository is private, so every minute a workflow runs is billed against the account's monthly
+allowance, and each job is rounded up to a whole minute. That is the reason for three of the
+choices above: nothing runs on a `develop` push, superseded runs are cancelled, and every job has a
+timeout. A run of these gates takes under a minute.
 :::
 
 ## The deploy
 
-The last piece puts the app on the internet: a **Render** free web service, called
-`lustjinn-staging`, serving the `develop` branch.
+The last piece is the path to the internet: a **Render** free web service, called
+`lustjinn-staging`, serving the `develop` branch. The path is built and tested as far as it can be
+without an account — but it has not run yet. The project stays on the development machine until it
+is worth putting in the cloud, and this section describes what will happen then.
 
 ### What Render runs
 
@@ -328,7 +338,7 @@ services:
     autoDeployTrigger: "off"
     envVars:
       - key: UV_VERSION
-        value: "0.12.21"
+        value: "0.12.22"
 ```
 
 - **The build** is the same `uv sync --locked` as CI, plus **`--no-dev`**: pytest, ruff and pyright
@@ -338,7 +348,7 @@ services:
   proxy reaches the process from outside the container; the default, `127.0.0.1`, would accept only
   connections from inside. And it listens on **`$PORT`**, the port Render chooses.
 - **`healthCheckPath`** — Render calls `/health` to decide whether the service is up.
-- **`autoDeployTrigger: "off"`** — a push to GitHub alone deploys nothing; Forgejo decides when.
+- **`autoDeployTrigger: "off"`** — a push alone deploys nothing; a deploy is always asked for.
 
 ::: dotnet
 `--host 0.0.0.0 --port $PORT` is Kestrel's `ASPNETCORE_URLS=http://+:$PORT` — the same lesson every
@@ -352,29 +362,27 @@ The free tier has two properties the whole design respects. The service **sleeps
 fifteen minutes without requests and takes 30–60 seconds to wake — which is why the future PWA is a
 separate static site that opens instantly and shows "waking the server". And it has **no persistent
 disk**: anything written to the filesystem disappears on the next deploy or restart. No SQLite, no
-files. From step 2, everything lives in Neon.
+files. Everything lives in the database: a local Postgres for now, Neon once the app moves to the
+cloud.
 :::
 
 ### How a deploy travels
 
-Render builds from GitHub, but the code lives on Forgejo. A deploy is therefore started by hand, from
-Forgejo: *Actions → CI → Run workflow* on `develop`, with **deploy = staging**. The same workflow
-that runs the gates then runs one more job, `deploy-staging`, only if they all passed:
+A deploy is started by hand: on GitHub, *Actions → CI → Run workflow* on `develop`, with
+**deploy = staging**. The same workflow that runs the gates then runs one more job,
+`deploy-staging`, only if they all passed:
 
-1. **Push to the mirror.** `.forgejo/scripts/push-to-github.sh` pushes the commit to `develop` on
-   GitHub — fast-forward only, never forced. If GitHub has a commit Forgejo does not, the push is
-   refused and the deploy stops, rather than overwrite it.
-2. **Fire the hook.** A `POST` to Render's *deploy hook* — a secret URL — starts a build of what
-   GitHub now holds.
-3. **Wait for the right commit.** The job polls `/health` until the service reports *this* commit.
+1. **Fire the hook.** A `POST` to Render's *deploy hook* — a secret URL — starts a build of the
+   branch.
+2. **Wait for the right commit.** The job polls `/health` until the service reports *this* commit.
    "The service is up" is not enough: the old version is up too, until the new one replaces it.
 
-The one-time setup — creating the service from the blueprint, the hook and token secrets in Forgejo —
-is in `docs/DEPLOYMENT.md`.
+The one-time setup — creating the service from the blueprint, the hook secret and the service URL
+on GitHub — is in `docs/DEPLOYMENT.md`.
 
 ### `/health` grows a field
 
-Step 3 of that list needs the service to say which commit it runs. Render provides it in an
+Step 2 of that list needs the service to say which commit it runs. Render provides it in an
 environment variable, `RENDER_GIT_COMMIT`, so `/health` now returns it:
 
 ```python
@@ -454,9 +462,10 @@ $env:RENDER_GIT_COMMIT = "hello"; uv run uvicorn lustjinn.main:app
 
 - A Python 3.14 project managed by uv, locked, with a `src/` layout.
 - A FastAPI app with one endpoint, three tests, and four gates — all clean.
-- CI on Forgejo running the gates on every pull request and merge.
-- A deploy path to Render staging that refuses to run on red gates and checks what it deployed.
+- CI on GitHub Actions running the gates on every pull request.
+- A deploy path to Render staging that refuses to run on red gates and checks what it deployed —
+  ready for the day the app moves to the cloud.
 
-**Next — Chapter 2, Stories and messages on Neon.** The first real data: settings from the
-environment, sign-in, SQLAlchemy models, the first Alembic migration, and a trigger that makes
-messages append-only.
+**Next — Chapter 2, Stories and messages.** The first real data, in a Postgres running in Docker:
+settings from the environment, sign-in, SQLAlchemy models, the first Alembic migration, and a
+trigger that makes messages append-only.

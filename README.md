@@ -28,4 +28,5 @@ uv run pyright
 
 ## Tracking
 
-One Forgejo milestone per roadmap step, with an issue for each piece of work.
+One GitHub milestone per roadmap step, with an issue for each piece of work. `develop` is the
+default branch and every pull request merges into it; `main` is for releases only.
