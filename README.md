@@ -17,8 +17,13 @@ the database.
 cp .env.example .env                        # then fill in the blanks
 docker compose up -d                        # Postgres 17 + pgvector on localhost:5440
 uv sync                                     # create .venv from uv.lock
+uv run alembic upgrade head                 # create or update the tables
+uv run python scripts/seed_dummy.py         # optional: a dummy character and persona to play with
 uv run uvicorn lustjinn.main:app --reload   # http://127.0.0.1:8000/health, /docs
 ```
+
+Sign in with `POST /auth/sign-in`; every other endpoint needs the token it returns. On `/docs`,
+press **Authorize** and paste it.
 
 ## The gates
 

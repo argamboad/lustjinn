@@ -29,6 +29,12 @@ sketch, the lessons airp paid for, and the roadmap.
 - `uv sync` — environment from `uv.lock`. Python is pinned in `.python-version` (3.14).
 - `docker compose up -d` — the local Postgres (17 + pgvector, port 5440). The tests need it: they
   create their own throwaway database on it and never touch the `lustjinn` one.
+- `uv run alembic upgrade head` — apply the migrations. A schema change is a model edit **and** a
+  migration (`uv run alembic revision --autogenerate -m "…"`, then read and tidy it); a test fails
+  when the two disagree. Database rules a model cannot express (triggers) are hand-written SQL in
+  a migration.
+- `uv run python scripts/seed_dummy.py` — the dummy character and persona, for playing locally.
+  Tests that need a character use the `dummy` fixture, never a few inline words.
 - `uv run uvicorn lustjinn.main:app --reload` — the API locally; settings come from `.env`
   (see `.env.example`).
 - **The gates, all clean before any commit:** `uv run pytest`, `uv run ruff check`,
