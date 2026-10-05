@@ -41,6 +41,22 @@ jobs:
     env:
       # Same uv as the development machine, installed from Astral's pinned release script.
       UV_VERSION: "0.12.22"
+    # The database tests need a real Postgres: the same image and port as docker-compose.yml, so
+    # the tests' default connection string works here unchanged. The job waits for it to be healthy.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: lustjinn
+          POSTGRES_PASSWORD: lustjinn
+          POSTGRES_DB: lustjinn
+        ports:
+          - 5440:5432
+        options: >-
+          --health-cmd "pg_isready -U lustjinn -d lustjinn"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
     steps:
       - uses: actions/checkout@v5
         with:

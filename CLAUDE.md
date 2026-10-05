@@ -15,7 +15,10 @@ sketch, the lessons airp paid for, and the roadmap.
 - **Claude writes the code; the course teaches it.** `docs/course/` (built to a PDF) explains each
   step as it is built, mapped to .NET. Each step's chapter is its own issue and its own commit, in
   that step's PR — a step is not done until its chapter is.
-- **The UI is dark and designed** — not framework defaults.
+- **The web UI is dark and light, designed, and approved by the owner** before the screens are
+  built and again when done (GitHub #75). The terminal client is dark by design, no gate.
+- **custom-airp is the donor of logic.** Before building a feature, read its donor files and tests
+  as listed in `docs/DONOR.md` and in the issue's *Donor* note.
 - **Do not invent and do not assume.** If a fact is missing, ask.
 - **The lessons in `docs/KICKOFF.md` are binding.** Do not re-learn them; if a task seems to
   contradict one, stop and say so.
@@ -24,7 +27,16 @@ sketch, the lessons airp paid for, and the roadmap.
 
 ## Commands
 - `uv sync` — environment from `uv.lock`. Python is pinned in `.python-version` (3.14).
-- `uv run uvicorn lustjinn.main:app --reload` — the API locally.
+- `docker compose up -d` — the local Postgres (17 + pgvector, port 5440). The tests need it: they
+  create their own throwaway database on it and never touch the `lustjinn` one.
+- `uv run alembic upgrade head` — apply the migrations. A schema change is a model edit **and** a
+  migration (`uv run alembic revision --autogenerate -m "…"`, then read and tidy it); a test fails
+  when the two disagree. Database rules a model cannot express (triggers) are hand-written SQL in
+  a migration.
+- `uv run python scripts/seed_dummy.py` — the dummy character and persona, for playing locally.
+  Tests that need a character use the `dummy` fixture, never a few inline words.
+- `uv run uvicorn lustjinn.main:app --reload` — the API locally; settings come from `.env`
+  (see `.env.example`).
 - **The gates, all clean before any commit:** `uv run pytest`, `uv run ruff check`,
   `uv run ruff format --check`, `uv run pyright` (strict).
 
