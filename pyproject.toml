@@ -57,5 +57,5 @@ select = [
 ]
 
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts"]
 typeCheckingMode = "strict"

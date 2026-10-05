@@ -22,6 +22,7 @@ from sqlalchemy.pool import NullPool
 
 from lustjinn.db import get_session
 from lustjinn.main import app
+from scripts.seed_dummy import Dummy, load
 
 # Any database on the server will do to connect to; the tests create their own beside it.
 SERVER = os.environ.get(
@@ -99,3 +100,9 @@ async def client(session: AsyncSession) -> AsyncGenerator[httpx2.AsyncClient]:
     async with httpx2.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="session")
+def dummy() -> Dummy:
+    """The dummy character, opening and persona: the realistic-size card every test should use."""
+    return load()
