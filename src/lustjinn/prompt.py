@@ -16,6 +16,23 @@ PERSONA_FRAME = (
 )
 
 
+def ask_directive(question: str) -> str:
+    """The instruction for a question asked out of character. Like every instruction sent, it
+    says what it is — not a turn — and what the reply must be: an answer, from what was given."""
+    return (
+        "Step out of the scene. This is a question from the reader about the story, put to you "
+        "as its author, and it is not a turn: nothing here is said aloud by anyone and nothing "
+        "that follows happens.\n\n"
+        "Answer in your own voice, briefly and plainly. No prose, no dialogue, no action, no "
+        "staying in character, and do not move the story forward by so much as a moment.\n\n"
+        "Answer only from what you have been given above. Where it does not say, say that it "
+        "does not say. Anything you make up here is written down nowhere and will be gone the "
+        "moment this is read, so an invented detail becomes something the reader believes and "
+        "the story then contradicts.\n\n"
+        f"The question: {question.strip()}"
+    )
+
+
 def build(
     character: Character,
     persona: Persona | None,

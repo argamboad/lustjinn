@@ -174,6 +174,33 @@ class Message(Base):
     story: Mapped[Story] = relationship(back_populates="messages", lazy="raise")
 
 
+class Aside(Base):
+    """A question asked about the story out of character, and its answer.
+
+    Never a turn: nothing that reads a story — the prompt, and later the summariser, the
+    extractor, retrieval — reads this table. It exists so that a billed call leaves a trace.
+    """
+
+    __tablename__ = "asides"
+    __table_args__ = (CheckConstraint("sequence >= 0", name="sequence_not_negative"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    story_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("stories.id", ondelete="RESTRICT"), index=True
+    )
+    sequence: Mapped[int]
+    """The newest visible message when it was asked, to place it against the story."""
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    asked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    model: Mapped[str | None] = mapped_column(String(200))
+    provider: Mapped[str | None] = mapped_column(String(200))
+    prompt_tokens: Mapped[int | None]
+    completion_tokens: Mapped[int | None]
+    estimated_prompt_tokens: Mapped[int | None]
+    context_audit: Mapped[str | None] = mapped_column(Text)
+
+
 class Spend(Base):
     """One row per billed call, whatever became of what it produced. A ledger, not a summary.
 

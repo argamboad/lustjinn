@@ -14,14 +14,14 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import ledger, prompt
+from lustjinn import commands, ledger, prompt
 from lustjinn.db import get_session
-from lustjinn.models import Message, Role, SpendKind, Story
+from lustjinn.models import Aside, Message, Role, SpendKind, Story
 from lustjinn.openrouter import ModelError, OpenRouter, Reply, get_openrouter, temperature_for
 from lustjinn.settings import Settings, get_settings
 from lustjinn.sse import format_event
@@ -68,6 +68,31 @@ class Failed(BaseModel):
     detail: str
     sent: MessageOut | None
     """The reader's message, which was kept. Do not send it again."""
+
+
+class AsideOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    sequence: int
+    question: str
+    answer: str
+    model: str | None
+    provider: str | None
+    asked_at: datetime
+
+
+class AsideDone(BaseModel):
+    """The last event of a question that was answered. Nothing of it is in the story."""
+
+    kind: Literal["aside"] = "aside"
+    aside: AsideOut
+
+
+# Sampling for a question: cold, because an answer can be promoted to a pinned fact (step 7),
+# so an embellishment would become something the character believes. Short: it is an answer.
+ASIDE_TEMPERATURE = 0.4
+ASIDE_MAX_TOKENS = 600
 
 
 def request_hash(
@@ -119,11 +144,11 @@ async def _next_sequence(session: AsyncSession, story_id: uuid.UUID) -> int:
     return (highest or 0) + 1
 
 
-def _choice(story: Story, settings: Settings) -> tuple[str, float]:
+def _choice(story: Story, settings: Settings, temperature: float) -> tuple[str, float]:
     """The model a story plays on, and the temperature mapped onto its range when it has one."""
     if story.model is None:
-        return settings.model, settings.temperature
-    return story.model, temperature_for(story.model, settings.temperature)
+        return settings.model, temperature
+    return story.model, temperature_for(story.model, temperature)
 
 
 def _reasoning(settings: Settings) -> bool | None:
@@ -161,7 +186,7 @@ async def reply(
     hidden for this call (a reroll), to be shown again if nothing arrives to replace it.
     """
     messages = prompt.build(story.character, story.persona, await _visible(session, story.id))
-    model, temperature = _choice(story, settings)
+    model, temperature = _choice(story, settings, settings.temperature)
     written: Reply | None = None
     try:
         async for piece in openrouter.stream(
@@ -269,6 +294,56 @@ async def turn(
         yield event
 
 
+async def ask(
+    session: AsyncSession, openrouter: OpenRouter, settings: Settings, story: Story, question: str
+) -> AsyncIterator[str]:
+    """Answers a question about the story, out of character, and keeps the answer apart.
+
+    The prompt is the one the next turn would send, up to the instruction — so the answer is
+    grounded in exactly what the character can see, and on a caching host it is nearly free.
+    Nothing goes into `messages`: an asking is not a turn.
+    """
+    history = await _visible(session, story.id)
+    messages = prompt.build(
+        story.character, story.persona, history, instruction=prompt.ask_directive(question)
+    )
+    model, temperature = _choice(story, settings, ASIDE_TEMPERATURE)
+    answered: Reply | None = None
+    try:
+        async for piece in openrouter.stream(
+            messages,
+            model=model,
+            temperature=temperature,
+            max_tokens=ASIDE_MAX_TOKENS,
+            reasoning=_reasoning(settings),
+        ):
+            if isinstance(piece, Reply):
+                answered = piece
+            else:
+                yield format_event("delta", {"text": piece})
+    except ModelError as error:
+        # Unlike a send, nothing was stored: this is simply a call that did not happen.
+        yield _event("error", Failed(detail=f"The question was not answered: {error}", sent=None))
+        return
+    if answered is None:
+        raise RuntimeError("The stream ended without a reply.")
+
+    aside = Aside(
+        story_id=story.id,
+        sequence=history[-1].sequence if history else 0,
+        question=question,
+        answer=answered.text.strip(),
+        model=answered.model,
+        provider=answered.provider,
+        prompt_tokens=answered.prompt_tokens,
+        completion_tokens=answered.completion_tokens,
+    )
+    session.add(aside)
+    session.add(ledger.row(story.id, SpendKind.ASIDE, answered))
+    await session.commit()
+    yield _event("done", AsideDone(aside=AsideOut.model_validate(aside)))
+
+
 @router.post("/{story_id}/send", responses=STREAMED)
 async def send(
     story_id: uuid.UUID,
@@ -277,9 +352,45 @@ async def send(
     openrouter: Model,
     settings: CurrentSettings,
 ) -> StreamingResponse:
-    """Sends the reader's message and streams the reply back."""
+    """Sends what the reader typed: a message, or a slash command.
+
+    A message becomes a turn and streams the reply back. `/ask <question>` streams an answer
+    out of character and stores nothing in the story. Anything else that starts with a slash is
+    refused before anything is stored or sent; `//` sends a line that begins with one.
+    """
     story = await _playable(session, story_id)
-    return _streamed(turn(session, openrouter, settings, story, body.text))
+    match commands.parse(body.text):
+        case commands.Prose(text):
+            return _streamed(turn(session, openrouter, settings, story, text))
+        case commands.Command(spec=commands.Spec(name="ask"), argument=question):
+            return _streamed(ask(session, openrouter, settings, story, question))
+        case commands.Command(spec=spec):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, f"{spec.usage} is not available yet."
+            )
+        case commands.Incomplete(spec=spec):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"Usage: {spec.usage} — nothing was stored.",
+            )
+        case commands.Unknown(name=name):
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT,
+                f"/{name} is not a command, so nothing was sent and nothing was stored. To send "
+                "a line that begins with a slash, begin it with two.",
+            )
+
+
+@router.get("/{story_id}/asides")
+async def list_asides(story_id: uuid.UUID, session: Session) -> list[AsideOut]:
+    """The questions asked about a story, newest first."""
+    await _playable(session, story_id)
+    rows = await session.scalars(
+        select(Aside)
+        .where(Aside.story_id == story_id)
+        .order_by(Aside.asked_at.desc(), Aside.id.desc())
+    )
+    return [AsideOut.model_validate(row) for row in rows]
 
 
 @router.post("/{story_id}/reroll", responses=STREAMED)
