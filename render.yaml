@@ -17,4 +17,4 @@ services:
     autoDeployTrigger: "off"        # quoted: bare `off` is a boolean to some YAML parsers
     envVars:
       - key: UV_VERSION
-        value: "0.12.21"            # the same uv as development and CI
+        value: "0.12.22"            # the same uv as development and CI

@@ -40,7 +40,7 @@ jobs:
     timeout-minutes: 10
     env:
       # Same uv as the development machine, installed from Astral's pinned release script.
-      UV_VERSION: "0.12.21"
+      UV_VERSION: "0.12.22"
     steps:
       - uses: actions/checkout@v5
         with:
