@@ -136,6 +136,35 @@ out. A test that created two entries and listed one caught it; a list that happe
 tested with no hidden entries would not have.
 :::
 
+The same rule had a second trap, and this one only showed on another machine.
+
+::: warning
+The shelf is listed alphabetically. The first version said `ORDER BY lower(name)`, and its test
+passed where it was written. On the laptop's Postgres the same test failed: `_template` came out
+*between* `Elena` and `Zoe`.
+
+`ORDER BY` on text does not have one meaning. Postgres sorts by the **collation** the database
+was created with, and collations disagree: the usual `en_US.utf8` ignores punctuation on a first
+pass, so a leading underscore vanishes; the `C` collation compares bytes, so `Ángela` lands after
+`Zoe`. The fix names the order instead of inheriting it:
+
+```python
+def alphabetical(name: InstrumentedAttribute[str]) -> ColumnElement[str]:
+    return name.collate("und-x-icu")
+```
+
+`und-x-icu` is ICU's language-neutral order — punctuation, digits, then letters without regard to
+case, accents beside their base letter — and it is the same on every server. A test now pins
+`_template, 9lives, alba, Ángela, Elena, Zoe` exactly.
+:::
+
+::: dotnet
+SQL Server has the same hazard under another name: a column's collation (`SQL_Latin1_General_CP1_CI_AS`
+and friends) decides both ordering and equality, and a query that sorts one way on your machine
+sorts another on a server installed with a different default. `.collate(...)` is
+`EF.Functions.Collate(x, "...")`.
+:::
+
 ## What a foreign key does for you
 
 A story points at its character and its persona by id, `ON DELETE RESTRICT`. Two things follow,

@@ -152,6 +152,27 @@ async def test_the_shelf_is_listed_alphabetically_without_regard_to_case(
     ]
 
 
+async def test_the_order_does_not_depend_on_the_servers_own_sorting_rules(
+    client: httpx2.AsyncClient,
+) -> None:
+    """Punctuation, digits, then letters, an accent beside its base letter. A database created
+    with one locale ignores a leading underscore and another puts `Á` after `Z`; the shelf asks
+    for its order by name instead of taking the server's."""
+    for name in ["Zoe", "Elena", "_template", "Ángela", "alba", "9lives"]:
+        await create(client, "characters", name=name, text="t")
+
+    everything = (await client.get("/library/characters", params={"hidden": "true"})).json()
+
+    assert [e["name"] for e in everything] == [
+        "_template",
+        "9lives",
+        "alba",
+        "Ángela",
+        "Elena",
+        "Zoe",
+    ]
+
+
 async def test_a_shelf_that_does_not_exist_is_refused(client: httpx2.AsyncClient) -> None:
     assert (await client.get("/library/openings")).status_code == 422
     assert (await client.get(f"/library/characters/{new_id()}")).status_code == 404
