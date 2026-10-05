@@ -14,13 +14,23 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from lustjinn.db import get_session
-from lustjinn.models import AppSettings, Character, LibraryEntry, Persona, Snippet, Story
+from lustjinn.models import (
+    AppSettings,
+    Character,
+    LibraryEntry,
+    LibraryHistory,
+    LibraryKind,
+    Persona,
+    Snippet,
+    Story,
+)
 
 router = APIRouter(prefix="/library", tags=["library"])
 Session = Annotated[AsyncSession, Depends(get_session)]
@@ -102,6 +112,9 @@ class NewEntry(BaseModel):
 class EntryChanges(BaseModel):
     """What a save may change. Only the fields given are touched."""
 
+    version: int
+    """The version the editor started from. A save over a newer one is refused: a save made on
+    a phone must not quietly undo an edit made on the laptop in between."""
     name: Name | None = None
     text: Body | None = None
     opening: str | None = None
@@ -130,6 +143,16 @@ class EntryOut(EntrySummary):
     used_by: list[str]
     """The live stories that use the entry, by name. Empty for a snippet: it is copied into a
     message when used and never read again."""
+
+
+class HistoryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    version: int
+    name: str
+    text: str
+    opening: str | None
+    saved_at: datetime
 
 
 class Defaults(BaseModel):
@@ -214,6 +237,31 @@ def _opening(given: str | None) -> str | None:
     return given if given and given.strip() else None
 
 
+def _remembered(shelf: Shelf[Any], entry: LibraryEntry, version: int) -> LibraryHistory:
+    """The history row for a version about to be saved."""
+    return LibraryHistory(
+        kind=LibraryKind(shelf.kind),
+        entry_id=entry.id,
+        version=version,
+        name=entry.name,
+        text=shelf.text_of(entry),
+        opening=entry.opening if isinstance(entry, Character) else None,
+    )
+
+
+def _changed_elsewhere(shelf: Shelf[Any], current: LibraryEntry) -> HTTPException:
+    """A 409 that carries the entry as it is now, so a client can show both texts and let the
+    reader decide, instead of losing either."""
+    return HTTPException(
+        status.HTTP_409_CONFLICT,
+        {
+            "message": f"This {shelf.kind} changed somewhere else since you opened it. Nothing "
+            "was saved. Here is what it says now; save again to replace it.",
+            "current": _out(shelf, current, []).model_dump(mode="json"),
+        },
+    )
+
+
 @router.get("/settings")
 async def read_defaults(session: Session) -> Defaults:
     persona = await default_persona(session)
@@ -277,9 +325,11 @@ async def create_entry(shelf: OnShelf, new: NewEntry, session: Session) -> Entry
     if isinstance(entry, Character):
         entry.opening = _opening(new.opening)
     session.add(entry)
+    await session.flush()  # gives it its id, for the history row
+    session.add(_remembered(shelf, entry, version=1))
     await session.commit()
-    # The database filled in version and updated_at; read them back, explicitly, since a lazy
-    # load is not something async code can do by itself.
+    # The database filled in updated_at; read it back, explicitly, since a lazy load is not
+    # something async code can do by itself.
     await session.refresh(entry)
     return _out(shelf, entry, [])
 
@@ -295,8 +345,14 @@ async def save_entry(
     shelf: OnShelf, entry_id: uuid.UUID, changes: EntryChanges, session: Session
 ) -> EntryOut:
     """Saves what was given: a new name, a new text, a new opening. Renaming is free — stories
-    hold the id — and reaches every story from its next turn, as does the text."""
+    hold the id — and reaches every story from its next turn, as does the text.
+
+    Refused with 409 when the entry has moved past the version the editor started from. A save
+    that changes nothing writes nothing: the version stays, and no history row is added.
+    """
     entry = await _one(session, shelf, entry_id)
+    if changes.version != entry.version:
+        raise _changed_elsewhere(shelf, entry)
     if changes.name is not None and changes.name != entry.name:
         if shelf.slug == "snippets" and not SNIPPET_NAME.match(changes.name):
             raise HTTPException(
@@ -317,9 +373,32 @@ async def save_entry(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, f"A {shelf.kind} has no opening."
             )
         entry.opening = _opening(changes.opening)
-    await session.commit()
-    await session.refresh(entry)
+    if session.is_modified(entry):
+        session.add(_remembered(shelf, entry, version=entry.version + 1))
+        try:
+            await session.commit()
+        except StaleDataError:
+            # Loaded a moment ago and already gone: another save landed between our read and
+            # our write. The ORM's own WHERE version = … caught it; the client gets the same
+            # answer as a stale version would.
+            await session.rollback()
+            raise _changed_elsewhere(shelf, await _one(session, shelf, entry_id)) from None
+        await session.refresh(entry)
     return _out(shelf, entry, await used_by(session, shelf, entry))
+
+
+@router.get("/{shelf}/{entry_id}/history")
+async def read_history(shelf: OnShelf, entry_id: uuid.UUID, session: Session) -> list[HistoryOut]:
+    """Every version ever saved, newest first. Still there after the entry is deleted."""
+    rows = await session.scalars(
+        select(LibraryHistory)
+        .where(LibraryHistory.kind == LibraryKind(shelf.kind), LibraryHistory.entry_id == entry_id)
+        .order_by(LibraryHistory.version.desc())
+    )
+    found = [HistoryOut.model_validate(row) for row in rows]
+    if not found:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"There is no {shelf.kind} with that id.")
+    return found
 
 
 @router.delete("/{shelf}/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)

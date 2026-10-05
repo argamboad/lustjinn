@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -24,7 +25,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -90,6 +91,40 @@ class LibraryEntry:
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+
+    @declared_attr.directive
+    @classmethod
+    def __mapper_args__(cls) -> dict[str, Any]:
+        # The ORM does the optimistic check itself: every UPDATE it writes carries
+        # `WHERE version = <the version it loaded>` and sets `version + 1`; no row matched means
+        # someone saved first, and the flush raises StaleDataError.
+        return {"version_id_col": cls.version}
+
+
+class LibraryKind(StrEnum):
+    CHARACTER = "character"
+    PERSONA = "persona"
+    SNIPPET = "snippet"
+
+
+class LibraryHistory(Base):
+    """Every version of every entry ever saved. Insert-only; outlives the entry."""
+
+    __tablename__ = "library_history"
+    __table_args__ = (
+        CheckConstraint("kind IN ('character', 'persona', 'snippet')", name="kind"),
+        Index("ix_library_history_entry", "entry_id", "version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    kind: Mapped[LibraryKind] = mapped_column(_stored_as_text(LibraryKind))
+    entry_id: Mapped[uuid.UUID]
+    """No foreign key: the history of a deleted entry is still history."""
+    version: Mapped[int]
+    name: Mapped[str] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(Text)
+    opening: Mapped[str | None] = mapped_column(Text)
+    saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
 class Character(LibraryEntry, Base):

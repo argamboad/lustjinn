@@ -163,27 +163,23 @@ async def test_saving_changes_only_what_was_given(
     character = await a_character(session, name="Elena", opening="*Rain.*")
     await session.commit()
 
-    renamed = (
-        await client.patch(f"/library/characters/{character.id}", json={"name": "Elena Vance"})
-    ).json()
+    url = f"/library/characters/{character.id}"
+
+    renamed = (await client.patch(url, json={"version": 1, "name": "Elena Vance"})).json()
     assert (renamed["name"], renamed["text"], renamed["opening"]) == (
         "Elena Vance",
         "You are Elena.",
         "*Rain.*",
     )
 
-    retexted = (
-        await client.patch(f"/library/characters/{character.id}", json={"text": "A new card."})
-    ).json()
+    retexted = (await client.patch(url, json={"version": 2, "text": "A new card."})).json()
     assert (retexted["name"], retexted["text"], retexted["opening"]) == (
         "Elena Vance",
         "A new card.",
         "*Rain.*",
     )
 
-    cleared = (
-        await client.patch(f"/library/characters/{character.id}", json={"opening": None})
-    ).json()
+    cleared = (await client.patch(url, json={"version": 3, "opening": None})).json()
     assert cleared["opening"] is None
     assert cleared["text"] == "A new card."
 
@@ -195,10 +191,14 @@ async def test_renaming_onto_another_entrys_name_is_refused(
     other = await a_persona(session, name="Keeper")
     await session.commit()
 
-    response = await client.patch(f"/library/personas/{other.id}", json={"name": "TRAVELLER"})
+    response = await client.patch(
+        f"/library/personas/{other.id}", json={"version": 1, "name": "TRAVELLER"}
+    )
 
     assert response.status_code == 409
-    same = await client.patch(f"/library/personas/{other.id}", json={"name": "keeper"})
+    same = await client.patch(
+        f"/library/personas/{other.id}", json={"version": 1, "name": "keeper"}
+    )
     assert same.status_code == 200  # a change of case on its own name is fine
     assert same.json()["name"] == "keeper"
 
@@ -214,7 +214,11 @@ async def test_renaming_a_character_a_story_uses_reaches_the_story(
 
     await client.patch(
         f"/library/characters/{character.id}",
-        json={"name": "Elena Vance", "text": "You are Elena Vance, keeper of the light."},
+        json={
+            "version": 1,
+            "name": "Elena Vance",
+            "text": "You are Elena Vance, keeper of the light.",
+        },
     )
 
     opened = (await client.get(f"/stories/{story.id}")).json()
