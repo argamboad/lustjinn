@@ -7,6 +7,7 @@ live only in the migrations, because they are not something a model can express.
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from enum import StrEnum
 
 from sqlalchemy import (
@@ -16,6 +17,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     MetaData,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -52,9 +54,25 @@ class Role(StrEnum):
     SYSTEM = "system"
 
 
-def _values(roles: type[Role]) -> list[str]:
-    """What the role column holds: the values ("user"), not the member names ("USER")."""
-    return [role.value for role in roles]
+class SpendKind(StrEnum):
+    """What a billed call was doing."""
+
+    REPLY = "reply"
+    ASIDE = "aside"
+    SUMMARY = "summary"
+    FACTS = "facts"
+
+
+def _values(members: type[StrEnum]) -> list[str]:
+    """What an enum column holds: the values ("user"), not the member names ("USER")."""
+    return [member.value for member in members]
+
+
+def _stored_as_text(members: type[StrEnum]) -> Enum:
+    """An enum stored as plain text, read back as the enum. A CHECK on the table guards it."""
+    return Enum(
+        members, native_enum=False, create_constraint=False, length=20, values_callable=_values
+    )
 
 
 class Character(Base):
@@ -138,16 +156,7 @@ class Message(Base):
     story_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stories.id", ondelete="RESTRICT"))
     sequence: Mapped[int]
     """Position in the story, from 1. Never reused, even after a message is hidden."""
-    # Stored as plain text ("user"), read back as a Role. The CHECK above is what guards it.
-    role: Mapped[Role] = mapped_column(
-        Enum(
-            Role,
-            native_enum=False,
-            create_constraint=False,
-            length=20,
-            values_callable=_values,
-        )
-    )
+    role: Mapped[Role] = mapped_column(_stored_as_text(Role))
     text: Mapped[str] = mapped_column(Text)
     request_hash: Mapped[str | None] = mapped_column(String(64))
     """Identifies the request that stored a reader's turn, so a retry does not store it twice."""
@@ -163,3 +172,36 @@ class Message(Base):
     """Set when the message is hidden — by a reroll or a delete. The row stays."""
 
     story: Mapped[Story] = relationship(back_populates="messages", lazy="raise")
+
+
+class Spend(Base):
+    """One row per billed call, whatever became of what it produced. A ledger, not a summary.
+
+    Insert-only, enforced by a trigger — and no foreign keys on purpose: a story erased for good
+    takes its messages with it, and its ledger stays. What the router charged exists nowhere
+    else once the response is gone.
+    """
+
+    __tablename__ = "spend"
+    __table_args__ = (
+        CheckConstraint("kind IN ('reply', 'aside', 'summary', 'facts')", name="kind"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    story_id: Mapped[uuid.UUID] = mapped_column(index=True)
+    kind: Mapped[SpendKind] = mapped_column(_stored_as_text(SpendKind))
+    message_id: Mapped[uuid.UUID | None]
+    """The reply this call produced, for a reply. Whether it was later rerolled away is read
+    from that message at report time, never stored here."""
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    model: Mapped[str | None] = mapped_column(String(200))
+    provider: Mapped[str | None] = mapped_column(String(200))
+    generation_id: Mapped[str | None] = mapped_column(String(200))
+    """OpenRouter's id for the call, to reconcile against its own records."""
+    prompt_tokens: Mapped[int | None]
+    completion_tokens: Mapped[int | None]
+    cached_tokens: Mapped[int | None]
+    cache_write_tokens: Mapped[int | None]
+    cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 10))
+    """What the call was charged, as the API reported it. None is "the API did not say", which
+    is not zero. Exact decimal, never a float: hundreds of $0.0028 rows must add up."""
