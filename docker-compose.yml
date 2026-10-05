@@ -1,0 +1,28 @@
+# The local database: Postgres 17 with the pgvector extension available.
+#   docker compose up -d      start it (data kept in the lustjinn-db volume)
+#   docker compose down       stop it; add -v to throw the data away
+# Port 5440 on this machine only, so it never collides with another project's Postgres on 5432.
+# The user and password below are for local development and are not secrets; the cloud database
+# gets its own, in Render's environment. Postgres 17 is a version Neon offers, so moving there
+# later is a change of connection string.
+name: lustjinn
+
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: lustjinn
+      POSTGRES_PASSWORD: lustjinn
+      POSTGRES_DB: lustjinn
+    ports:
+      - "127.0.0.1:5440:5432"
+    volumes:
+      - lustjinn-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lustjinn -d lustjinn"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+volumes:
+  lustjinn-db:

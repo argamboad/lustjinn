@@ -27,7 +27,10 @@ sketch, the lessons airp paid for, and the roadmap.
 
 ## Commands
 - `uv sync` — environment from `uv.lock`. Python is pinned in `.python-version` (3.14).
-- `uv run uvicorn lustjinn.main:app --reload` — the API locally.
+- `docker compose up -d` — the local Postgres (17 + pgvector, port 5440). The tests need it: they
+  create their own throwaway database on it and never touch the `lustjinn` one.
+- `uv run uvicorn lustjinn.main:app --reload` — the API locally; settings come from `.env`
+  (see `.env.example`).
 - **The gates, all clean before any commit:** `uv run pytest`, `uv run ruff check`,
   `uv run ruff format --check`, `uv run pyright` (strict).
 
