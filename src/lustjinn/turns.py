@@ -9,6 +9,7 @@ loses what was written, and a retry of the same words finds it instead of storin
 import hashlib
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -279,3 +280,34 @@ async def send(
     """Sends the reader's message and streams the reply back."""
     story = await _playable(session, story_id)
     return _streamed(turn(session, openrouter, settings, story, body.text))
+
+
+@router.post("/{story_id}/reroll", responses=STREAMED)
+async def reroll(
+    story_id: uuid.UUID, session: Session, openrouter: Model, settings: CurrentSettings
+) -> StreamingResponse:
+    """Writes the newest reply again. The old one is hidden, and kept for the record."""
+    story = await _playable(session, story_id)
+    visible = await _visible(session, story.id)
+    last = visible[-1] if visible else None
+    if last is None or last.role is not Role.ASSISTANT:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "There is no reply to write again: a reroll applies to the newest reply. "
+            "Send a message first.",
+        )
+    # The opening is a page a person wrote, and it sits at the top of the story for the rest
+    # of its life; a reroll there would trade it for a guess. Told apart by two things, since
+    # either alone is wrong: no model wrote it, and the reader has not taken a turn yet.
+    if last.model is None and not any(m.role is Role.USER for m in visible):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            "The opening is not rerolled: a person wrote it. Write your first turn; the reply "
+            "to it can be rerolled.",
+        )
+    # Hidden before the call, or the prompt would end on the very reply being rewritten and
+    # invite the model to write it again. Hidden, not removed: it is still something the model
+    # wrote, and the ledger row for it stays.
+    last.deleted_at = datetime.now(UTC)
+    await session.commit()
+    return _streamed(reply(session, openrouter, settings, story, sent=None, restore=last))
