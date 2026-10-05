@@ -7,6 +7,7 @@ authors = [
 ]
 requires-python = ">=3.14"
 dependencies = [
+    "alembic>=1.20.0",
     "asyncpg>=0.31.0",
     "fastapi>=0.142.2",
     "pydantic-settings>=2.15.0",
@@ -29,6 +30,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # so tests can share helpers as `tests.factories`
 # pytest-asyncio: `async def` tests and fixtures run without a marker, all on one event loop —
 # the session-wide database engine belongs to that loop.
 asyncio_mode = "auto"

@@ -9,11 +9,14 @@ that is rolled back.
 import os
 import uuid
 from collections.abc import AsyncGenerator
+from pathlib import Path
 
 import httpx2
 import pytest
 import pytest_asyncio
-from sqlalchemy import make_url, text
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import Connection, make_url, text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -24,6 +27,16 @@ from lustjinn.main import app
 SERVER = os.environ.get(
     "LUSTJINN_TEST_DATABASE_URL", "postgresql+asyncpg://lustjinn:lustjinn@localhost:5440/postgres"
 )
+
+
+def migrate(connection: Connection, revision: str = "head") -> None:
+    """Runs Alembic on this connection: up to `revision`, or down to it when it is "base"."""
+    config = Config(Path(__file__).parent.parent / "alembic.ini")
+    config.attributes["connection"] = connection  # migrations/env.py looks for it
+    if revision == "base":
+        command.downgrade(config, revision)
+    else:
+        command.upgrade(config, revision)
 
 
 @pytest_asyncio.fixture(scope="session")
@@ -49,7 +62,10 @@ async def database_url() -> AsyncGenerator[str]:
 
 @pytest_asyncio.fixture(scope="session")
 async def engine(database_url: str) -> AsyncGenerator[AsyncEngine]:
+    """The throwaway database with every migration applied — the real ones, not `create_all`."""
     engine = create_async_engine(database_url, poolclass=NullPool)
+    async with engine.begin() as connection:
+        await connection.run_sync(migrate)
     yield engine
     await engine.dispose()
 
