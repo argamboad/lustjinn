@@ -36,6 +36,8 @@ pythonpath = ["."]  # so tests can share helpers as `tests.factories`
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
+# A warning is a failure: a deprecation is dealt with when it appears, not when it bites.
+filterwarnings = ["error"]
 
 [tool.ruff]
 line-length = 100

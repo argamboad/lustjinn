@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+from lustjinn import stories
 from lustjinn.db import dispose_engine
 from lustjinn.settings import get_settings
 
@@ -21,6 +22,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
 
 
 app = FastAPI(title="Lustjinn", lifespan=lifespan)
+app.include_router(stories.router)
 
 
 class Health(BaseModel):
