@@ -8,8 +8,9 @@ so they are not re-learned.
 
 ## What this is
 
-A web app for **NSFW roleplay with a memory that does not forget**, built as a side project that
-takes the good parts of **airp** (`argamboad/custom-airp`, .NET 10) and rebuilds them in Python.
+An app for **NSFW roleplay with a memory that does not forget**, built as a side project that
+takes the good parts of **airp** (`argamboad/custom-airp`, .NET 10) and rebuilds them in Python:
+one API, and two clients that play the same stories — a web app and a terminal client.
 
 **The real goal is learning: Python, especially as a backend.** Shipping matters less than
 understanding. The owner is an experienced C#/.NET developer (ASP.NET Core, EF Core, xUnit), so:
@@ -33,14 +34,15 @@ The thesis carried over from airp:
 | Tooling | **uv**, **ruff** (lint + format), **pyright** strict | uv ≈ `dotnet` CLI + NuGet. Strict types are the stand-in for `TreatWarningsAsErrors` and nullable reference types |
 | API | **FastAPI** on **uvicorn** | ≈ ASP.NET minimal APIs: async, DI, OpenAPI built in |
 | Models, settings | **Pydantic**, **pydantic-settings** | ≈ records with validation, `IOptions<T>` |
-| Database | **Neon Postgres** (free tier) + **pgvector** | Already used and liked. Does not expire, wakes in ~1 s, vector search included |
+| Database | **Postgres** + **pgvector** — in **Docker** locally for now, **Neon** (free tier) when the app moves to the cloud | Neon is already used and liked: does not expire, wakes in ~1 s, vector search included. The schema is the same either way |
 | Data access | **SQLAlchemy 2.0** (async) + **Alembic** | ≈ EF Core + migrations. Worth also seeing plain SQL with `psycopg` once |
 | Model API | **OpenRouter** via **httpx**, replies streamed over **SSE** | Same provider as airp; embeddings through it too |
 | Token counting | **tiktoken** `o200k_base` | Same vocabulary airp counts with |
 | Tests | **pytest**, **respx** for faked HTTP | ≈ xUnit, NSubstitute |
-| Front end | **SvelteKit**, built static (`adapter-static`), as a **PWA** | Close to plain HTML; light on a phone; installable without an app store |
-| Hosting | **Render free tier**: API as a web service (sleeps; that is accepted), front end as a **static site** (does not sleep) | $0/month. The UI opens instantly and shows "waking the server…" |
-| Secrets | Render environment variables | Never in the repository |
+| Web client | **SvelteKit**, built static (`adapter-static`), as a **PWA** | Close to plain HTML; light on a phone; installable without an app store |
+| Terminal client | **Textual** (Python) | Screen stack, key bindings with a footer legend, command palette, themes and mouse built in — what airp's shell built by hand on Spectre.Console; async, so streamed replies fit; tested with pytest; the language the project exists to teach |
+| Hosting | **Render free tier**, *when the app is ready for the cloud* (decided 2026-10-05: local first): API as a web service (sleeps; that is accepted), web client as a **static site** (does not sleep) | $0/month. The UI opens instantly and shows "waking the server…" |
+| Secrets | Render environment variables; a local `.env` | Never in the repository |
 
 **Considered and set aside, with the reason:**
 
@@ -53,6 +55,11 @@ The thesis carried over from airp:
   alternative if React experience ever matters more than Svelte's simplicity.
 - **FastAPI + Jinja2 + htmx.** A real option (all Python, no JS framework), set aside because the
   whole app would sleep — a blank tab for 30–60 s after every quiet spell — and there is no offline.
+- **Keeping airp's C# terminal client** and pointing it at the API. The most reuse, but a second
+  language and toolchain in the repo, and it teaches no Python. The terminal client is a rebuild
+  that carries over airp's look, keys and behaviour — not its code.
+- **Importing airp's library and stories.** The owner adds the library by hand through the editor,
+  as a chance to curate it, and stories start from scratch (2026-10-05).
 
 ---
 
@@ -63,7 +70,7 @@ Verify each against the providers' current docs before relying on it; they have 
 - **Render free web services sleep** after idling and take ~30–60 s to wake. **Static sites do not
   sleep.**
 - **Render's free tier has no persistent disk.** Nothing may be stored on the filesystem: no
-  SQLite, no library files. Everything lives in Neon.
+  SQLite, no library files. Everything lives in the database (local Postgres now, Neon later).
 - **Render's free Postgres expires** about a month after creation. That is why the database is Neon.
 - **`onrender.com` is on the Public Suffix List**, so `app.onrender.com` and `api.onrender.com` are
   *different sites* to a browser. Cookies set by the API are third-party and increasingly blocked.
@@ -227,34 +234,48 @@ Each was measured on real stories and cost real time. Do not re-learn them.
 ## Roadmap
 
 Each step teaches one thing, and the app grows with it. Steps 1–3 already give something playable.
+One GitHub milestone per step; one PR per step, one commit per issue. **custom-airp is the donor of
+logic for steps 2–9**: `docs/DONOR.md` maps every step to the donor files, rules, tests and
+decision records to port from.
 
 1. **Hello, deployed.** uv project, FastAPI with one endpoint, one pytest test, ruff + pyright in
-   CI, deployed to Render. *Teaches: layout, uv, uvicorn, how Python is served.*
-2. **Stories and messages on Neon.** SQLAlchemy models, an Alembic migration, the append-only
-   trigger in SQL. *Teaches: the ORM, async sessions, transactions.*
+   CI, a deploy path to Render. *Teaches: layout, uv, uvicorn, how Python is served.* — Done
+   2026-10-05, except the deploy itself, postponed with the move to the cloud.
+2. **Stories and messages.** A Postgres with pgvector in Docker, settings, sign-in, SQLAlchemy
+   models, an Alembic migration, the append-only trigger in SQL, the stories API, a dummy
+   character to play and test with. *Teaches: the ORM, async sessions, transactions.*
 3. **One turn against OpenRouter.** httpx, the reply streamed over SSE, the turn persisted first,
-   the spend row from `usage.cost`. *Teaches: async I/O, streaming, error handling.*
+   the spend row from `usage.cost`, reroll, slash commands. *Teaches: async I/O, streaming, error
+   handling.*
 4. **The library.** Characters (with their opening), personas, snippets; optimistic concurrency;
-   history. Plus a one-off import script for airp's library (~35 cards, ~1 MB; openings attach
-   to the character of the same name, unmatched ones are reported, not guessed). *Teaches:
-   foreign keys, constraints, scripts.*
-5. **The context builder.** Layers in order, the budget with tiktoken, the newest turn always kept.
-   *Teaches: pure logic, fixtures, dataclasses — mostly tests.*
-6. **The memory.** Batched summaries, pgvector retrieval, facts. *Teaches: background work, vector
-   queries, larger design.*
-7. **The SvelteKit PWA.** Story list, reading and writing with streamed replies, the library
-   editor, a "waking the server" screen, installable on the phone.
+   history; snippets expanded at send time. *Teaches: foreign keys, constraints.*
+5. **The context builder.** Layers in order, the budget with tiktoken, the newest turn always kept,
+   the audit. *Teaches: pure logic, fixtures, dataclasses — mostly tests.*
+6. **The memory.** Batched summaries, pgvector retrieval, facts, background retries. *Teaches:
+   background work, vector queries, larger design.*
+7. **Story features.** What airp does beyond the core loop, as API features both clients use:
+   `/do`, carry on, `/focus`, regenerate with a reason, a model per story with fallback, dials,
+   meters, branching, delete-from, search, export, cost reports, editable facts, memory rebuild,
+   purge, `/recap`. *Teaches: growing an API feature by feature on the foundations of 2–6.*
+8. **The SvelteKit PWA.** A design system in dark and light, approved by the owner before the
+   screens are built; story list, reading and writing with streamed replies, the library editor,
+   a "waking the server" screen, installable on the phone.
+9. **The terminal client.** Textual; airp's look, keys and behaviour, dark by design; talks to the
+   same API. *Teaches: Textual, an async client of our own API, a second package in a uv
+   workspace.*
 
 **Definition of done for step 1:** `uv run pytest` passes, `ruff check` and `pyright` are clean,
-CI runs them on every push, and the deployed URL answers `GET /health`.
+and CI runs them on every pull request. (The original also required the deployed URL to answer
+`GET /health`; the deploy moved to *Later* with the cloud, 2026-10-05.)
 
 ---
 
 ## Settled before step 1 (2026-10-01)
 
 1. **Working mode: Claude writes the code.** The learning happens through **the course**: a PDF
-   (source in `docs/course/`) that explains every step as it is built, mapped to .NET. It is kept up
-   to date — a change that teaches something updates its chapter in the same commit.
+   (source in `docs/course/`) that explains every step as it is built, mapped to .NET. Each step's
+   chapter is its own issue and its own commit, in that step's PR; a step is not done until its
+   chapter is.
 2. **Where the repo lives:** GitHub, `argamboad/lustjinn`, private (since 2026-10-02; it began on a
    self-hosted Forgejo, now retired). `develop` is the default branch and every pull request merges
    into it; `main` is for releases only. Render deploys from this repository.
@@ -266,4 +287,22 @@ CI runs them on every push, and the deployed URL answers `GET /health`.
    the signing secret) are decided when auth is built.
 5. **Svelte 5**, latest, runes (`$state`, `$derived`) from the start — and beware that many
    examples online still use Svelte 4 syntax.
-6. **The UI is dark** and should look good — designed, not default.
+6. **The web UI is dark and light, both first-class** — designed, not default. Tokens for both
+   themes, the system setting by default, a remembered switch. **The owner approves the look and
+   feel** twice: the design system and the two key screens before the rest is built, and every
+   screen when done (2026-10-05; this replaced "the UI is dark").
+
+## Settled on 2026-10-05
+
+7. **Two clients, one API.** A terminal client joins the web app, built with **Textual**; it is
+   **dark by design**, like a real terminal app — one theme, no switch, no approval gate. Every
+   feature is an API endpoint first; neither client reaches the database.
+8. **Local first, cloud later.** The database is a Postgres with pgvector in Docker; Neon and
+   Render come when the app is worth putting in the cloud. The design still respects the cloud's
+   constraints (no filesystem writes, bearer-token auth, CORS), so the move is a connection string
+   and a deploy hook.
+9. **No imports from airp.** The owner curates the library by hand through the editor; stories
+   start from scratch. A dummy character written by Claude serves as the test fixture and as
+   something to play with until then.
+10. **custom-airp is the donor of logic**, not of code or data. `docs/DONOR.md` is the map; every
+    GitHub issue carries a *Donor* note naming its sources.

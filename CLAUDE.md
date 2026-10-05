@@ -15,7 +15,10 @@ sketch, the lessons airp paid for, and the roadmap.
 - **Claude writes the code; the course teaches it.** `docs/course/` (built to a PDF) explains each
   step as it is built, mapped to .NET. Each step's chapter is its own issue and its own commit, in
   that step's PR — a step is not done until its chapter is.
-- **The UI is dark and designed** — not framework defaults.
+- **The web UI is dark and light, designed, and approved by the owner** before the screens are
+  built and again when done (GitHub #75). The terminal client is dark by design, no gate.
+- **custom-airp is the donor of logic.** Before building a feature, read its donor files and tests
+  as listed in `docs/DONOR.md` and in the issue's *Donor* note.
 - **Do not invent and do not assume.** If a fact is missing, ask.
 - **The lessons in `docs/KICKOFF.md` are binding.** Do not re-learn them; if a task seems to
   contradict one, stop and say so.
