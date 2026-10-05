@@ -19,10 +19,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import commands, ledger, prompt
+from lustjinn import commands, ledger, prompt, snippets
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
-from lustjinn.models import Aside, Message, Persona, Role, SpendKind, Story
+from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
 from lustjinn.openrouter import ModelError, OpenRouter, Reply, get_openrouter, temperature_for
 from lustjinn.settings import Settings, get_settings
 from lustjinn.sse import format_event
@@ -126,6 +126,14 @@ async def _playable(session: AsyncSession, story_id: uuid.UUID) -> Story:
     if story is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no story with that id.")
     return story
+
+
+async def _expanded(session: AsyncSession, text: str) -> str:
+    """The text with its `:name` triggers replaced by the snippets of those names."""
+    if ":" not in text:
+        return text
+    rows = await session.execute(select(Snippet.name, Snippet.text))
+    return snippets.expand(text, snippets.by_name({name: body for name, body in rows}))
 
 
 async def _persona(session: AsyncSession, story: Story) -> Persona | None:
@@ -370,7 +378,9 @@ async def send(
     refused before anything is stored or sent; `//` sends a line that begins with one.
     """
     story = await _playable(session, story_id)
-    match commands.parse(body.text):
+    # Snippets expand first, before the line is read for commands, so a trigger works inside
+    # a question too; and before the hash, so a retry of `:storm` is still one turn.
+    match commands.parse(await _expanded(session, body.text)):
         case commands.Prose(text):
             return _streamed(turn(session, openrouter, settings, story, text))
         case commands.Command(spec=commands.Spec(name="ask"), argument=question):
