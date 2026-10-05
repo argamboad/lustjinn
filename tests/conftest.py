@@ -24,8 +24,10 @@ from sqlalchemy.pool import NullPool
 from lustjinn.auth import issue_token
 from lustjinn.db import get_session
 from lustjinn.main import app
+from lustjinn.openrouter import get_openrouter
 from lustjinn.settings import Settings, get_settings
 from scripts.seed_dummy import Dummy, load
+from tests.scripted_model import ScriptedModel
 
 # Any database on the server will do to connect to; the tests create their own beside it.
 SERVER = os.environ.get(
@@ -99,18 +101,25 @@ def settings(database_url: str) -> Settings:
         username="reader",
         password=SecretStr("correct horse battery staple"),
         token_secret=SecretStr("a-test-secret-that-is-long-enough-to-pass"),
+        openrouter_api_key=SecretStr("sk-or-test"),
         _env_file=None,  # pyright: ignore[reportCallIssue] — a real argument, hidden from the checker
     )
 
 
+@pytest.fixture
+def model() -> ScriptedModel:
+    """The model, answering from a script. Say what it answers before the call that needs it."""
+    return ScriptedModel()
+
+
 @pytest_asyncio.fixture
 async def anonymous(
-    session: AsyncSession, settings: Settings
+    session: AsyncSession, settings: Settings, model: ScriptedModel
 ) -> AsyncGenerator[httpx2.AsyncClient]:
     """An HTTP client that calls the app in-process and has not signed in.
 
-    The app is given the test's session and the test's settings in place of its own: FastAPI
-    swaps whatever a `Depends(...)` names for the override registered here.
+    The app is given the test's session, settings and model in place of its own: FastAPI swaps
+    whatever a `Depends(...)` names for the override registered here.
     """
 
     async def use_the_tests_session() -> AsyncGenerator[AsyncSession]:
@@ -118,6 +127,7 @@ async def anonymous(
 
     app.dependency_overrides[get_session] = use_the_tests_session
     app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_openrouter] = lambda: model.client(settings)
     transport = httpx2.ASGITransport(app=app)
     async with httpx2.AsyncClient(transport=transport, base_url="http://test") as client:
         yield client

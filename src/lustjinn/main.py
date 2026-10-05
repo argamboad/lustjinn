@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from lustjinn import auth, stories
 from lustjinn.db import dispose_engine
+from lustjinn.openrouter import close_http
 from lustjinn.settings import Settings, get_settings
 
 # Sent with every response. The API serves private stories: nothing should cache them, pass
@@ -37,6 +38,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
     get_settings()  # a missing or invalid setting stops the app here, not on the first request
     yield
     await dispose_engine()
+    await close_http()
 
 
 def _cors_origins(settings: Settings | None) -> list[str]:
