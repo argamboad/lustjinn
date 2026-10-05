@@ -25,6 +25,11 @@ uv run uvicorn lustjinn.main:app --reload   # http://127.0.0.1:8000/health, /doc
 Sign in with `POST /auth/sign-in`; every other endpoint needs the token it returns. On `/docs`,
 press **Authorize** and paste it.
 
+Playing needs an OpenRouter key in `.env` (`LUSTJINN_OPENROUTER_API_KEY`). `POST /stories/{id}/send`
+takes what the reader typed and streams the reply back as server-sent events; `/ask <question>`
+asks about the story out of character, and any other slash command is refused. `POST
+/stories/{id}/reroll` writes the newest reply again.
+
 ## The gates
 
 ```

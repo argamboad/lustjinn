@@ -1,11 +1,12 @@
 """Shortcuts that put rows in the database for a test, with sensible defaults."""
 
 import uuid
+from decimal import Decimal
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.models import Character, Message, Persona, Role, Story
+from lustjinn.models import Character, Message, Persona, Role, Spend, SpendKind, Story
 
 
 async def a_character(
@@ -57,3 +58,28 @@ async def a_message(
     session.add(message)
     await session.flush()
     return message
+
+
+async def a_spend(
+    session: AsyncSession,
+    story: Story,
+    kind: SpendKind = SpendKind.REPLY,
+    cost: Decimal | None = Decimal("0.0002"),
+    message_id: uuid.UUID | None = None,
+) -> Spend:
+    """A ledger row as the scripted model's default reply would leave it."""
+    row = Spend(
+        story_id=story.id,
+        kind=kind,
+        message_id=message_id,
+        model="test-model",
+        provider="test-host",
+        generation_id="gen-1",
+        prompt_tokens=10,
+        completion_tokens=5,
+        cached_tokens=4,
+        cost=cost,
+    )
+    session.add(row)
+    await session.flush()
+    return row

@@ -11,8 +11,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
-from lustjinn import auth, stories
+from lustjinn import auth, stories, turns
 from lustjinn.db import dispose_engine
+from lustjinn.openrouter import close_http
 from lustjinn.settings import Settings, get_settings
 
 # Sent with every response. The API serves private stories: nothing should cache them, pass
@@ -37,6 +38,7 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
     get_settings()  # a missing or invalid setting stops the app here, not on the first request
     yield
     await dispose_engine()
+    await close_http()
 
 
 def _cors_origins(settings: Settings | None) -> list[str]:
@@ -94,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     # Everything below needs a valid token. A new router goes here, behind the guard, by default.
     app.include_router(stories.router, dependencies=[Depends(auth.require_user)])
+    app.include_router(turns.router, dependencies=[Depends(auth.require_user)])
     return app
 
 

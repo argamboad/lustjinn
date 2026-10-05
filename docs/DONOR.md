@@ -432,8 +432,8 @@ Full list with ranges: `docs/CONFIGURATION.md`, `src/Airp.Application/Options/`.
 - `ScriptedModel` (`tests/LocalProviderTests.cs`): a queue of scripted replies that records every
   call's messages, model, temperature, reasoning flag, ceiling and penalty; helpers `Says`,
   `SaysUnpriced`, `Fails`, `HasNoSuchModel`, `Summarises` (pads the gist so it passes the
-  credibility floor), `Truncated`, `Empty`, `Rejected`. → Here: a respx-faked OpenRouter with the
-  same vocabulary.
+  credibility floor), `Truncated`, `Empty`, `Rejected`. → Here: `tests/scripted_model.py`, an
+  OpenRouter faked with httpx2's `MockTransport` in its own stream format, with the same vocabulary.
 - One in-memory database with the **real migrations** applied. → Here: a throwaway Postgres
   database per test session, migrated by Alembic (#74).
 - Seeded conversations: N turns alternating User/Assistant, `"Turn {i}. " + 60 filler words`.

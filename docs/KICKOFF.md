@@ -38,7 +38,7 @@ The thesis carried over from airp:
 | Data access | **SQLAlchemy 2.0** (async) + **Alembic** | ≈ EF Core + migrations. Worth also seeing plain SQL with `psycopg` once |
 | Model API | **OpenRouter** via **httpx**, replies streamed over **SSE** | Same provider as airp; embeddings through it too |
 | Token counting | **tiktoken** `o200k_base` | Same vocabulary airp counts with |
-| Tests | **pytest**, **respx** for faked HTTP | ≈ xUnit, NSubstitute |
+| Tests | **pytest**; HTTP faked with **httpx2**'s `MockTransport` (respx only supports httpx, and Starlette moved the project to httpx2 in step 1) | ≈ xUnit, a fake `HttpMessageHandler` |
 | Web client | **SvelteKit**, built static (`adapter-static`), as a **PWA** | Close to plain HTML; light on a phone; installable without an app store |
 | Terminal client | **Textual** (Python) | Screen stack, key bindings with a footer legend, command palette, themes and mouse built in — what airp's shell built by hand on Spectre.Console; async, so streamed replies fit; tested with pytest; the language the project exists to teach |
 | Hosting | **Render free tier**, *when the app is ready for the cloud* (decided 2026-10-05: local first): API as a web service (sleeps; that is accepted), web client as a **static site** (does not sleep) | $0/month. The UI opens instantly and shows "waking the server…" |
