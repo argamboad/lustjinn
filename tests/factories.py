@@ -6,7 +6,16 @@ from decimal import Decimal
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.models import Character, Message, Persona, Role, Spend, SpendKind, Story
+from lustjinn.models import (
+    Character,
+    Message,
+    Persona,
+    Role,
+    Snippet,
+    Spend,
+    SpendKind,
+    Story,
+)
 
 
 async def a_character(
@@ -25,6 +34,15 @@ async def a_persona(session: AsyncSession, name: str | None = None) -> Persona:
     session.add(persona)
     await session.flush()
     return persona
+
+
+async def a_snippet(
+    session: AsyncSession, name: str = "storm", text: str = "Rain hammers the glass."
+) -> Snippet:
+    snippet = Snippet(name=name, text=text)
+    session.add(snippet)
+    await session.flush()
+    return snippet
 
 
 async def a_story(

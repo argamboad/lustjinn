@@ -16,7 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn.db import dispose_engine, get_sessionmaker
-from lustjinn.models import Character, Persona
+from lustjinn.models import AppSettings, Character, Persona
 
 FIXTURES = Path(__file__).parent.parent / "tests" / "fixtures" / "dummy"
 CHARACTER_NAME = "The Gilded Heron"
@@ -64,7 +64,15 @@ async def seed(session: AsyncSession) -> tuple[Character, Persona]:
     if persona is None:
         persona = Persona(name=dummy.persona_name, text=dummy.persona)
         session.add(persona)
+    await session.flush()
 
+    # The dummy persona becomes the default when nothing is set yet, so a story that names no
+    # persona still has someone to play as. A default already chosen is left alone.
+    settings = await session.get(AppSettings, 1)
+    if settings is None:
+        session.add(AppSettings(default_persona_id=persona.id))
+    elif settings.default_persona_id is None:
+        settings.default_persona_id = persona.id
     await session.flush()
     return character, persona
 
