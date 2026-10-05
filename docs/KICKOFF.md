@@ -71,10 +71,35 @@ Verify each against the providers' current docs before relying on it; they have 
   FastAPI. A custom domain later would remove the issue.
 - **Neon:** use its **own project** (or at least its own branch), separate from anything else
   already there. `CREATE EXTENSION vector;` enables pgvector. Use the connection string with SSL.
-- **Check Render's and Neon's acceptable-use policies on sexual content** before committing real
-  stories. Not known; do not guess.
 - **Privacy is a deliberate trade:** airp kept the history on the owner's own machine. This keeps
   it in someone else's cloud.
+
+### The providers' content policies
+
+Read on 2026-10-02. A reading of the policies, not legal advice; both can change, so read them
+again before the move to the cloud.
+
+- **Render** — the [Acceptable Use Policy](https://render.com/acceptable-use) (last modified
+  2025-08-22) has no ban on adult or sexual content. It forbids content that is unlawful, abusive,
+  defamatory, hateful "or otherwise objectionable", and names child sexual exploitation.
+- **Storing the stories in Neon does not put them outside Render's rules.** Render's
+  [Terms of Service](https://render.com/terms) (2026-07-10) count what an app *displays* through
+  the service as "User Content", and Render may remove User Content at its own discretion.
+- **Neon** — its terms now sit under the Databricks
+  [Master Cloud Services Agreement](https://www.databricks.com/legal/mcsa), whose
+  [Acceptable Use Policy](https://www.databricks.com/legal/acceptable-use-policy) (2026-03-20)
+  restricts illegal content and third-party rights, not the type of content. Databricks' *Free
+  Edition* policy does ban pornography, but that is a different product and Neon's terms do not
+  refer to it.
+
+What follows for the design:
+
+- **Text only, private, behind sign-in.** Every endpoint except `/health` requires the bearer
+  token; nothing is public.
+- **Every character in a sexual scene is an adult.** It is the law and Render's explicit rule,
+  and the rule covers depictions, so it covers text.
+- **"Otherwise objectionable" is the remaining risk**, because Render decides what it means. The
+  stories live in Neon, so a suspended Render service would not lose them.
 
 ---
 
@@ -230,8 +255,9 @@ CI runs them on every push, and the deployed URL answers `GET /health`.
 1. **Working mode: Claude writes the code.** The learning happens through **the course**: a PDF
    (source in `docs/course/`) that explains every step as it is built, mapped to .NET. It is kept up
    to date — a change that teaches something updates its chapter in the same commit.
-2. **Where the repo lives:** Forgejo `argamboad/lustjinn` is `origin`; GitHub `argamboad/lustjinn`
-   (private) is the mirror Render deploys from. Default branch `develop`.
+2. **Where the repo lives:** GitHub, `argamboad/lustjinn`, private (since 2026-10-02; it began on a
+   self-hosted Forgejo, now retired). `develop` is the default branch and every pull request merges
+   into it; `main` is for releases only. Render deploys from this repository.
 3. **The name:** **Lustjinn** — lust + djinn. `lustjinn` in code, repositories and file names. It
    replaced the working name *lustee*.
 4. **Authentication: a username and a password** in environment variables (Render in production,

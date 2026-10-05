@@ -37,13 +37,17 @@ sketch, the lessons airp paid for, and the roadmap.
   start the next issue or step unasked, and never stack a PR on an unmerged one.
 
 ## Tracking
-- **Every piece of work has a Forgejo issue**, in the milestone of its roadmap step
+- **Every piece of work has a GitHub issue**, in the milestone of its roadmap step
   (`Step N · …`). Work found along the way gets a new issue in the step's milestone — and its own
   commit.
 - Labels follow the sibling repos: `type/*`, `area/*`, `needs-decision`, `owner/you`.
 
 ## Repository
-- `origin` is **GitHub** (`https://github.com/argamboad/lustjinn.git`, private). Branch from
-  `develop`; PRs and merges happen on GitHub. Actions minutes are billed: CI runs on PRs and on
-  `main`, never on a `develop` push. `forgejo` is the old remote, kept until Forgejo is retired.
-- Branches: `main` (production), `develop` (integration).
+- `origin` is **GitHub** (`https://github.com/argamboad/lustjinn.git`, private); issues, PRs and
+  merges happen there, with `gh`.
+- **`develop` is the default branch: branch from it, and every PR merges into it. `main` is for
+  releases only.**
+- **Actions minutes are billed.** CI runs on PRs and on `main` pushes, never on a `develop` push.
+  Say what a run costs before triggering one by hand.
+- Old commit messages cite issue numbers from the retired Forgejo tracker; a migrated issue's
+  footer names its Forgejo number.
