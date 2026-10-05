@@ -19,9 +19,10 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import commands, ledger, prompt
+from lustjinn import commands, ledger, prompt, snippets
 from lustjinn.db import get_session
-from lustjinn.models import Aside, Message, Role, SpendKind, Story
+from lustjinn.library import default_persona
+from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
 from lustjinn.openrouter import ModelError, OpenRouter, Reply, get_openrouter, temperature_for
 from lustjinn.settings import Settings, get_settings
 from lustjinn.sse import format_event
@@ -127,6 +128,19 @@ async def _playable(session: AsyncSession, story_id: uuid.UUID) -> Story:
     return story
 
 
+async def _expanded(session: AsyncSession, text: str) -> str:
+    """The text with its `:name` triggers replaced by the snippets of those names."""
+    if ":" not in text:
+        return text
+    rows = await session.execute(select(Snippet.name, Snippet.text))
+    return snippets.expand(text, snippets.by_name({name: body for name, body in rows}))
+
+
+async def _persona(session: AsyncSession, story: Story) -> Persona | None:
+    """The story's own persona, or the default for a story that names none, or nobody."""
+    return story.persona if story.persona is not None else await default_persona(session)
+
+
 async def _visible(session: AsyncSession, story_id: uuid.UUID) -> list[Message]:
     rows = await session.scalars(
         select(Message)
@@ -185,7 +199,9 @@ async def reply(
     `sent` is the reader's message the reply answers, already committed. `restore` is a reply
     hidden for this call (a reroll), to be shown again if nothing arrives to replace it.
     """
-    messages = prompt.build(story.character, story.persona, await _visible(session, story.id))
+    messages = prompt.build(
+        story.character, await _persona(session, story), await _visible(session, story.id)
+    )
     model, temperature = _choice(story, settings, settings.temperature)
     written: Reply | None = None
     try:
@@ -305,7 +321,10 @@ async def ask(
     """
     history = await _visible(session, story.id)
     messages = prompt.build(
-        story.character, story.persona, history, instruction=prompt.ask_directive(question)
+        story.character,
+        await _persona(session, story),
+        history,
+        instruction=prompt.ask_directive(question),
     )
     model, temperature = _choice(story, settings, ASIDE_TEMPERATURE)
     answered: Reply | None = None
@@ -359,7 +378,9 @@ async def send(
     refused before anything is stored or sent; `//` sends a line that begins with one.
     """
     story = await _playable(session, story_id)
-    match commands.parse(body.text):
+    # Snippets expand first, before the line is read for commands, so a trigger works inside
+    # a question too; and before the hash, so a retry of `:storm` is still one turn.
+    match commands.parse(await _expanded(session, body.text)):
         case commands.Prose(text):
             return _streamed(turn(session, openrouter, settings, story, text))
         case commands.Command(spec=commands.Spec(name="ask"), argument=question):

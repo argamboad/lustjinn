@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     CheckConstraint,
@@ -24,7 +25,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.orm import DeclarativeBase, Mapped, declared_attr, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
@@ -75,36 +76,103 @@ def _stored_as_text(members: type[StrEnum]) -> Enum:
     )
 
 
-class Character(Base):
-    """A character card. Minimal for now: the library step adds history and editing."""
+class LibraryEntry:
+    """What every shelf of the library shares: a name, a version, a time of last change.
 
-    __tablename__ = "characters"
-    __table_args__ = (Index("uq_characters_name_lower", text("lower(name)"), unique=True),)
+    A mixin, not a table: each class below gets its own copy of these columns. Names are unique
+    without regard to case, by an index on `lower(name)` declared on each table.
+    """
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(200))
-    card: Mapped[str] = mapped_column(Text)
-    opening: Mapped[str | None] = mapped_column(Text)
-    """The scene a story with this character starts on, written by a person."""
     version: Mapped[int] = mapped_column(server_default="1")
+    """Counts the saves. A save names the version it started from, and is refused when the row
+    has moved on: `UPDATE … WHERE id = … AND version = …` touching no row."""
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
 
+    @declared_attr.directive
+    @classmethod
+    def __mapper_args__(cls) -> dict[str, Any]:
+        # The ORM does the optimistic check itself: every UPDATE it writes carries
+        # `WHERE version = <the version it loaded>` and sets `version + 1`; no row matched means
+        # someone saved first, and the flush raises StaleDataError.
+        return {"version_id_col": cls.version}
 
-class Persona(Base):
+
+class LibraryKind(StrEnum):
+    CHARACTER = "character"
+    PERSONA = "persona"
+    SNIPPET = "snippet"
+
+
+class LibraryHistory(Base):
+    """Every version of every entry ever saved. Insert-only; outlives the entry."""
+
+    __tablename__ = "library_history"
+    __table_args__ = (
+        CheckConstraint("kind IN ('character', 'persona', 'snippet')", name="kind"),
+        Index("ix_library_history_entry", "entry_id", "version"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    kind: Mapped[LibraryKind] = mapped_column(_stored_as_text(LibraryKind))
+    entry_id: Mapped[uuid.UUID]
+    """No foreign key: the history of a deleted entry is still history."""
+    version: Mapped[int]
+    name: Mapped[str] = mapped_column(String(200))
+    text: Mapped[str] = mapped_column(Text)
+    opening: Mapped[str | None] = mapped_column(Text)
+    saved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Character(LibraryEntry, Base):
+    """A character card, with the opening a story with them starts on."""
+
+    __tablename__ = "characters"
+    __table_args__ = (Index("uq_characters_name_lower", text("lower(name)"), unique=True),)
+
+    card: Mapped[str] = mapped_column(Text)
+    opening: Mapped[str | None] = mapped_column(Text)
+    """The scene a story with this character starts on, written by a person."""
+
+
+class Persona(LibraryEntry, Base):
     """Who the reader plays."""
 
     __tablename__ = "personas"
     __table_args__ = (Index("uq_personas_name_lower", text("lower(name)"), unique=True),)
 
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
-    name: Mapped[str] = mapped_column(String(200))
     text: Mapped[str] = mapped_column(Text)
-    version: Mapped[int] = mapped_column(server_default="1")
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+
+
+class Snippet(LibraryEntry, Base):
+    """Authored prose, expanded into a message where `:name` is typed. Copied, never read again."""
+
+    __tablename__ = "snippets"
+    __table_args__ = (Index("uq_snippets_name_lower", text("lower(name)"), unique=True),)
+
+    text: Mapped[str] = mapped_column(Text)
+
+
+class AppSettings(Base):
+    """The one row of settings that live in the database rather than the environment.
+
+    One row, by a CHECK on its id. Missing until something is set: readers treat that as every
+    value at its default.
+    """
+
+    __tablename__ = "settings"
+    __table_args__ = (CheckConstraint("id = 1", name="one_row"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    default_persona_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("personas.id", ondelete="SET NULL")
     )
+    """The persona a story plays as when it names none. Cleared if that persona is deleted."""
+
+    default_persona: Mapped[Persona | None] = relationship(lazy="raise")
 
 
 class Story(Base):
