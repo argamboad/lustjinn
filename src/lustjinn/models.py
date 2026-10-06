@@ -279,6 +279,8 @@ class Message(Base):
     model: Mapped[str | None] = mapped_column(String(200))
     """The model that wrote it; None means a person did — the reader's turns, and the opening."""
     provider: Mapped[str | None] = mapped_column(String(200))
+    fell_back_from: Mapped[str | None] = mapped_column(String(200))
+    """The story's own model, when it could not take this turn and the default wrote it."""
     prompt_tokens: Mapped[int | None]
     completion_tokens: Mapped[int | None]
     estimated_prompt_tokens: Mapped[int | None]

@@ -7,6 +7,7 @@ loses what was written, and a retry of the same words finds it instead of storin
 """
 
 import hashlib
+import logging
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -39,6 +40,7 @@ from lustjinn.settings import Settings, get_settings
 from lustjinn.sse import format_event
 from lustjinn.stories import MessageOut
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/stories", tags=["turns"])
 
 # scope="request": the session stays open until the response has been sent. The default would
@@ -314,11 +316,28 @@ async def reply(
         instruction=instruction,
         reply_tokens=ceiling,
     )
-    model, temperature = _choice(
-        story, settings, settings.temperature if knobs.temperature is None else knobs.temperature
-    )
+    asked = settings.temperature if knobs.temperature is None else knobs.temperature
+    model, temperature = _choice(story, settings, asked)
+    fell_back_from: str | None = None
+    # A story's model with a smaller window than this prompt cannot take the turn: handed more
+    # than it was trained for, it answers in token soup. The default writes it instead, before
+    # anything is sent, and the reply says so.
+    if (
+        story.model is not None
+        and story.model_context is not None
+        and built.estimated_tokens > story.model_context - ceiling
+    ):
+        log.warning(
+            "%s cannot read this prompt (%d tokens against %d); the default wrote the turn.",
+            story.model,
+            built.estimated_tokens,
+            story.model_context - ceiling,
+        )
+        fell_back_from, model, temperature = story.model, settings.model, asked
     written: Reply | None = None
-    try:
+
+    async def relay(model: str, temperature: float) -> AsyncIterator[str]:
+        nonlocal written
         async for piece in openrouter.stream(
             built.messages,
             model=model,
@@ -331,6 +350,21 @@ async def reply(
                 written = piece
             else:
                 yield format_event("delta", {"text": piece})
+
+    try:
+        try:
+            async for event in relay(model, temperature):
+                yield event
+        except ModelError as error:
+            # A model with no host today — and only that — hands the turn to the default; the
+            # story keeps its model and tries it again next turn. Anything else is reported,
+            # not retried: a rejected key or an empty account would refuse the default too.
+            if fell_back_from is not None or model == settings.model or not error.no_such_model:
+                raise
+            log.warning("%s is not available (%s); the default wrote the turn.", model, error)
+            fell_back_from, model, temperature = model, settings.model, asked
+            async for event in relay(model, temperature):
+                yield event
     except ModelError as error:
         if restore is not None:
             restore.deleted_at = None
@@ -354,6 +388,7 @@ async def reply(
         text=written.text.strip(),
         model=written.model,
         provider=written.provider,
+        fell_back_from=fell_back_from,
         prompt_tokens=written.prompt_tokens,
         completion_tokens=written.completion_tokens,
         # The estimate beside the figure the provider reported: the one way to know whether the

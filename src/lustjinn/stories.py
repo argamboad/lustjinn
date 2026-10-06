@@ -61,6 +61,9 @@ class MessageOut(BaseModel):
     text: str
     model: str | None
     provider: str | None
+    fell_back_from: str | None = None
+    """Set on a reply the default wrote because the story's own model could not: the clients
+    show a one-time warning, since the voice is a different model's."""
     sent_at: datetime
 
 
