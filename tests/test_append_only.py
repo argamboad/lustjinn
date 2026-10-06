@@ -99,8 +99,10 @@ async def test_saving_a_message_unchanged_is_not_an_edit(session: AsyncSession) 
 async def test_emptying_the_table_is_refused(session: AsyncSession) -> None:
     await a_message(session, await a_story(session))
 
+    # CASCADE, because embeddings point at messages and Postgres refuses the plain form for that
+    # reason alone; the trigger must be what says no.
     with pytest.raises(IntegrityError, match="cannot be truncated"):
-        await session.execute(text("TRUNCATE messages"))
+        await session.execute(text("TRUNCATE messages CASCADE"))
 
 
 async def test_a_purge_that_announces_itself_may_delete(session: AsyncSession) -> None:

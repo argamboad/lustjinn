@@ -11,7 +11,9 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -300,3 +302,82 @@ class Spend(Base):
     cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 10))
     """What the call was charged, as the API reported it. None is "the API did not say", which
     is not zero. Exact decimal, never a float: hundreds of $0.0028 rows must add up."""
+
+
+class Summary(Base):
+    """A stretch of the story compressed into prose, carried forward once its turns no longer
+    fit. Derived from the transcript: it can always be made again, and deleting one loses
+    nothing that is not still in `messages`."""
+
+    __tablename__ = "summaries"
+    __table_args__ = (
+        UniqueConstraint("story_id", "from_sequence", name="uq_summaries_story_from"),
+        CheckConstraint("from_sequence <= to_sequence", name="range"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    story_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stories.id", ondelete="RESTRICT"))
+    from_sequence: Mapped[int]
+    to_sequence: Mapped[int]
+    """Inclusive: the summary stands for every turn from `from_sequence` to `to_sequence`."""
+    text: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(200))
+    message_count: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+EMBEDDING_DIMENSIONS = 1536
+"""What openai/text-embedding-3-small produces. The column refuses any other length."""
+
+
+class Embedding(Base):
+    """The vector of one summarised turn, for retrieval. Only turns a summary already covers
+    are embedded: the recent ones are in the prompt verbatim and need no recalling."""
+
+    __tablename__ = "embeddings"
+    __table_args__ = (
+        Index(
+            "ix_embeddings_vector",
+            "vector",
+            postgresql_using="hnsw",
+            postgresql_ops={"vector": "vector_cosine_ops"},
+        ),
+    )
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    story_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("stories.id", ondelete="RESTRICT"), index=True
+    )
+    vector: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
+    model: Mapped[str] = mapped_column(String(200))
+    """The embedding model. Vectors from different models do not compare; if the model changes,
+    the rows are made again."""
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Fact(Base):
+    """Something true in the story, from the turn it became true until the turn that made it
+    false. Live while `valid_to_sequence` is null. Extracted by a model after each summary, or
+    stated by a person — in which case `model` is null and the fact is pinned."""
+
+    __tablename__ = "facts"
+    __table_args__ = (
+        CheckConstraint(
+            "valid_to_sequence IS NULL OR valid_to_sequence >= valid_from_sequence", name="range"
+        ),
+        Index("ix_facts_story_live", "story_id", "valid_to_sequence"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    story_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stories.id", ondelete="RESTRICT"))
+    subject: Mapped[str] = mapped_column(String(200))
+    """Who or what it is about: a name, a place, a pair. Never "User"."""
+    text: Mapped[str] = mapped_column(Text)
+    valid_from_sequence: Mapped[int]
+    valid_to_sequence: Mapped[int | None]
+    model: Mapped[str | None] = mapped_column(String(200))
+    pinned: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    """A person said so; the extractor cannot retire it. A person can."""
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

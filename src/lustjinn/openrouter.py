@@ -232,6 +232,31 @@ class OpenRouter:
                 return piece
         raise ModelError("The stream ended without a reply.")  # the generator always yields one
 
+    async def embed(self, texts: Sequence[str], *, model: str) -> list[list[float]]:
+        """One vector per text, in the order given. Every failure is a `ModelError`.
+
+        OpenRouter's /embeddings speaks OpenAI's shape: `{model, input: [...]}` in,
+        `data[].embedding` with `data[].index` out. The index is what the order is read from —
+        a host may answer in any order.
+        """
+        if not texts:
+            return []
+        body: dict[str, object] = {"model": model, "input": list(texts), "encoding_format": "float"}
+        async with self._request("POST", "embeddings", body) as response:
+            answer = _parse((await response.aread()).decode())
+        found: dict[int, list[float]] = {}
+        for entry in _objects(answer, "data"):
+            index = _integer(entry, "index")
+            vector = entry.get("embedding")
+            if index is None or not isinstance(vector, list):
+                continue
+            found[index] = [float(x) for x in vector]  # pyright: ignore[reportUnknownVariableType, reportUnknownArgumentType]
+        if len(found) != len(texts):
+            raise ModelError(
+                f"The embeddings API returned {len(found)} vectors for {len(texts)} texts.", 200
+            )
+        return [found[i] for i in range(len(texts))]
+
     async def models(self) -> list[ModelInfo]:
         """What OpenRouter serves: each model's id, context window and price per million tokens."""
         async with self._request("GET", "models") as response:

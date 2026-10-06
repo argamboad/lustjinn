@@ -8,7 +8,7 @@ that is rolled back.
 
 import os
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 
 import httpx2
@@ -139,6 +139,19 @@ async def client(anonymous: httpx2.AsyncClient, settings: Settings) -> httpx2.As
     """The same client, signed in: every request carries a valid token."""
     anonymous.headers["Authorization"] = f"Bearer {issue_token(settings).access_token}"
     return anonymous
+
+
+@pytest.fixture
+def tune(settings: Settings) -> Callable[..., Settings]:
+    """Changes a setting for one test: `tune(context_budget=4000)`. The app and the model
+    client both read the tuned copy from then on."""
+
+    def change(**changes: object) -> Settings:
+        tuned = settings.model_copy(update=changes)
+        app.dependency_overrides[get_settings] = lambda: tuned
+        return tuned
+
+    return change
 
 
 @pytest.fixture(scope="session")

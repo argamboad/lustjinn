@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import commands, context, ledger, snippets
+from lustjinn import commands, context, ledger, memory, snippets
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
 from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
@@ -242,14 +242,14 @@ async def reply(
     `sent` is the reader's message the reply answers, already committed. `restore` is a reply
     hidden for this call (a reroll), to be shown again if nothing arrives to replace it.
     """
-    built = context.build(
-        context.Layers(
-            character=story.character,
-            persona=await _persona(session, story),
-            history=await _visible(session, story.id),
-        ),
-        budget=settings.context_budget,
-        recall_percent=settings.recall_percent,
+    # The memory runs first — a summary if the story no longer fits — then the prompt is built.
+    built = await memory.compose(
+        session,
+        openrouter,
+        settings,
+        story,
+        await _persona(session, story),
+        await _visible(session, story.id),
     )
     model, temperature = _choice(story, settings, settings.temperature)
     written: Reply | None = None
@@ -373,15 +373,16 @@ async def ask(
     Nothing goes into `messages`: an asking is not a turn.
     """
     history = await _visible(session, story.id)
-    built = context.build(
-        context.Layers(
-            character=story.character,
-            persona=await _persona(session, story),
-            history=history,
-            instruction=context.ask_directive(question),
-        ),
-        budget=settings.context_budget,
-        recall_percent=settings.recall_percent,
+    # The same compose as a turn — so the answer is grounded in exactly what the character can
+    # see, and so a question can trigger the same summary a turn would have.
+    built = await memory.compose(
+        session,
+        openrouter,
+        settings,
+        story,
+        await _persona(session, story),
+        history,
+        instruction=context.ask_directive(question),
     )
     model, temperature = _choice(story, settings, ASIDE_TEMPERATURE)
     answered: Reply | None = None
