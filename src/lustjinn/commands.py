@@ -34,6 +34,12 @@ COMMANDS: tuple[Spec, ...] = (
         "Ask about the story out of character. The answer is shown, never stored in the story",
         "billed",
     ),
+    Spec(
+        "tracker",
+        "/tracker <name> <value>",
+        "Set a meter by hand. The value is the last word, so a name of several words works",
+        "write",
+    ),
 )
 
 

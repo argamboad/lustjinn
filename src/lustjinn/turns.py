@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import commands, context, dials, ledger, memory, snippets
+from lustjinn import commands, context, dials, ledger, memory, snippets, trackers
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
 from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
@@ -133,6 +133,14 @@ class AsideDone(BaseModel):
     aside: AsideOut
 
 
+class Said(BaseModel):
+    """The last — and only — event of a command that answers in words and stores no turn:
+    shown once, kept nowhere."""
+
+    kind: Literal["said"] = "said"
+    text: str
+
+
 # Sampling for a question: cold, because an answer can be promoted to a pinned fact (step 7),
 # so an embellishment would become something the character believes. Short: it is an answer.
 ASIDE_TEMPERATURE = 0.4
@@ -228,6 +236,19 @@ def _event(name: str, payload: BaseModel) -> str:
     return format_event(name, payload.model_dump(mode="json"))
 
 
+async def _started(events: AsyncIterator[str]) -> AsyncIterator[str]:
+    """Runs a stream up to its first event, so what it refuses is refused with a status code
+    before the response has begun, and what it says is still said as a stream."""
+    first = await anext(events)
+
+    async def rest() -> AsyncIterator[str]:
+        yield first
+        async for event in events:
+            yield event
+
+    return rest()
+
+
 def _streamed(events: AsyncIterator[str]) -> StreamingResponse:
     # X-Accel-Buffering: a proxy in front (Render's, nginx) must pass each event on as it comes.
     return StreamingResponse(
@@ -254,6 +275,7 @@ async def reply(
     # prompt is built.
     directives, knobs = await _dialled(session, story)
     ceiling = knobs.max_tokens or settings.max_tokens
+    meters = await trackers.of(session, story.id)
     built = await memory.compose(
         session,
         openrouter,
@@ -262,6 +284,7 @@ async def reply(
         await _persona(session, story),
         await _visible(session, story.id),
         directives=directives,
+        trackers=trackers.render(meters),
         reply_tokens=ceiling,
     )
     model, temperature = _choice(
@@ -313,6 +336,10 @@ async def reply(
     )
     session.add(stored)
     await session.flush()  # gives it its id, for the ledger row
+    # The meters the model drew at the end of the reply, read back into the table. The lines
+    # stay in the stored text, as the donor left them: they reach history, summaries and
+    # embeddings, and stripping them would be a change to a reply the model wrote.
+    trackers.absorb(meters, stored.text, stored.sequence)
     # Written whatever becomes of the reply: a reroll a second from now hides the message and
     # leaves this row where it is, which is the only way the total agrees with the invoice.
     session.add(ledger.row(story.id, SpendKind.REPLY, written, message_id=stored.id))
@@ -402,6 +429,7 @@ async def ask(
         await _persona(session, story),
         history,
         directives=directives,
+        trackers=trackers.render(await trackers.of(session, story.id)),
         instruction=context.ask_directive(question),
         reply_tokens=knobs.max_tokens or settings.max_tokens,
     )
@@ -444,6 +472,26 @@ async def ask(
     yield _event("done", AsideDone(aside=AsideOut.model_validate(aside)))
 
 
+async def set_tracker(session: AsyncSession, story: Story, argument: str) -> AsyncIterator[str]:
+    """`/tracker <name> <value>`: moves a meter by hand and says so. No model call."""
+    split = trackers.split_command(argument)
+    if split is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "/tracker <name> <value> — the value has to be a number, so nothing was stored.",
+        )
+    name, value = split
+    tracker = await trackers.named(session, story.id, name)
+    if tracker is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"This story has no meter called {name}, so nothing was stored.",
+        )
+    await trackers.set_value(session, tracker, value)
+    await session.commit()
+    yield _event("done", Said(text=f"{tracker.name} is now {trackers.shown(value)}."))
+
+
 @router.post("/{story_id}/send", responses=STREAMED)
 async def send(
     story_id: uuid.UUID,
@@ -466,6 +514,9 @@ async def send(
             return _streamed(turn(session, openrouter, settings, story, text))
         case commands.Command(spec=commands.Spec(name="ask"), argument=question):
             return _streamed(ask(session, openrouter, settings, story, question))
+        case commands.Command(spec=commands.Spec(name="tracker"), argument=argument):
+            # Checked before the stream opens, so a refusal is a 4xx and not a stream of one.
+            return _streamed(await _started(set_tracker(session, story, argument)))
         case commands.Command(spec=spec):
             raise HTTPException(
                 status.HTTP_422_UNPROCESSABLE_CONTENT, f"{spec.usage} is not available yet."
