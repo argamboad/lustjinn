@@ -35,6 +35,9 @@ sketch, the lessons airp paid for, and the roadmap.
   a migration.
 - `uv run python scripts/seed_dummy.py` — the dummy character and persona, for playing locally.
   Tests that need a character use the `dummy` fixture, never a few inline words.
+- **A test that scripts a summary also scripts the fact extraction that follows it**
+  (`model.summarises(…).extracts(…).says(…)`), or the extractor eats the reply meant for the
+  reader. The ledger then holds `summary`, `facts` and `reply` rows.
 - `uv run uvicorn lustjinn.main:app --reload` — the API locally; settings come from `.env`
   (see `.env.example`).
 - **Token counting needs the network once:** tiktoken downloads `o200k_base` from
