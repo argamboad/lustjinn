@@ -30,7 +30,7 @@
 	.strip {
 		display: flex;
 		gap: 8px;
-		padding: 4px 14px 8px;
+		padding: 2px 10px 6px;
 		overflow-x: auto;
 		scrollbar-width: none;
 	}

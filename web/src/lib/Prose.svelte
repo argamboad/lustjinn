@@ -23,10 +23,10 @@
 <style>
 	.prose {
 		font-family: var(--font-prose);
-		font-size: 1rem;
-		line-height: 1.6;
+		font-size: 0.95rem;
+		line-height: 1.5;
 		display: grid;
-		gap: 0.7em;
+		gap: 0.5em;
 		overflow-wrap: anywhere;
 	}
 	p {

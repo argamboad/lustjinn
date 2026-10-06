@@ -319,10 +319,11 @@
 	}
 	.list {
 		flex: 1;
+		min-height: 0;
 		overflow: auto;
 		padding: 0 12px 96px;
 		display: grid;
-		gap: 8px;
+		gap: 6px;
 		align-content: start;
 		overscroll-behavior: contain;
 	}
@@ -365,8 +366,8 @@
 		position: relative;
 		display: grid;
 		grid-template-columns: 44px 1fr auto;
-		gap: 12px;
-		padding: 12px;
+		gap: 10px;
+		padding: 10px;
 		border-radius: var(--r-m);
 		background: var(--surface);
 		border: 1px solid var(--line);

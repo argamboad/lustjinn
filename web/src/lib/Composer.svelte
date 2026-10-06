@@ -234,7 +234,7 @@
 <style>
 	.composer {
 		position: relative;
-		padding: 8px 12px calc(10px + var(--safe-bottom));
+		padding: 6px 10px calc(8px + var(--safe-bottom));
 		border-top: 1px solid var(--line);
 		background: color-mix(in srgb, var(--bg) 90%, transparent);
 		backdrop-filter: blur(12px);

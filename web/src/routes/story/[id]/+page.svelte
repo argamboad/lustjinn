@@ -8,7 +8,6 @@
 	import MeterStrip from '#lib/MeterStrip.svelte';
 	import RerollSheet from '#lib/RerollSheet.svelte';
 	import Sheet from '#lib/Sheet.svelte';
-	import StoryRail from '#lib/StoryRail.svelte';
 	import {
 		api,
 		ApiError,
@@ -42,8 +41,6 @@
 	let menuFor = $state<Message | null>(null);
 	let storyMenu = $state(false);
 	let extras = $state<Extras | null>(null);
-	let railOpen = $state(false);
-	let railSection = $state<'dials' | 'meters' | 'prompt'>('dials');
 	let renaming = $state(false);
 	let newName = $state('');
 	let cutConfirm = $state(false);
@@ -273,12 +270,7 @@
 <div class="screen">
 	<AppBar title={story?.name ?? 'Story'} {sub} back="/">
 		{#snippet actions()}
-			<button
-				class="btn icon rail-button"
-				type="button"
-				aria-label="Dials and meters"
-				onclick={() => (railOpen = true)}>◐</button
-			>
+			<a class="btn icon" href="/story/{id}/settings" aria-label="Dials and meters">◐</a>
 			<button
 				class="btn icon"
 				type="button"
@@ -288,80 +280,57 @@
 		{/snippet}
 	</AppBar>
 
-	<div class="body">
-		<div class="column">
-			<main class="convo" bind:this={scroller}>
-				{#if problem}
-					<p class="problem">{problem}</p>
-				{:else if !story}
-					<p class="muted center">Opening the story…</p>
-				{:else}
-					{#if story.messages.length === 0 && !pendingSent}
-						<p class="muted center">
-							Nothing has been said yet. Write the first turn, or carry on to let {story.character_name}
-							begin.
-						</p>
-					{/if}
-					{#each visible as message (message.id)}
-						<MessageView
-							{message}
-							newest={newestReply?.id === message.id && !busy}
-							onreroll={() => (rerollOpen = true)}
-							onmenu={() => (menuFor = message)}
-						/>
-					{/each}
-					{#each notes as n (n.id)}
-						<aside class="note">
-							{#if n.title}<b>{n.title}</b>{/if}
-							<p class="prose">{n.text}</p>
-							<footer>
-								<span class="muted">shown once, not stored</span>
-								<button
-									type="button"
-									class="link"
-									onclick={() => (notes = notes.filter((x) => x.id !== n.id))}>Dismiss</button
-								>
-							</footer>
-						</aside>
-					{/each}
-					{#if pendingSent !== null}
-						<MessageView message={{ role: 'user', text: pendingSent }} />
-					{/if}
-					{#if pendingReply !== null}
-						<MessageView message={{ role: 'assistant', text: pendingReply }} streaming />
-					{/if}
-				{/if}
-			</main>
-
-			{#if extras}
-				<MeterStrip
-					trackers={extras.trackers}
-					onopen={() => {
-						railSection = 'meters';
-						railOpen = true;
-					}}
-				/>
+	<main class="convo" bind:this={scroller}>
+		{#if problem}
+			<p class="problem">{problem}</p>
+		{:else if !story}
+			<p class="muted center">Opening the story…</p>
+		{:else}
+			{#if story.messages.length === 0 && !pendingSent}
+				<p class="muted center">
+					Nothing has been said yet. Write the first turn, or carry on to let {story.character_name}
+					begin.
+				</p>
 			{/if}
-			<Composer
-				bind:this={composer}
-				{commands}
-				{snippets}
-				{busy}
-				onsend={send}
-				oncarryon={carryOn}
-			/>
-		</div>
-		{#if extras}
-			<aside class="rail" aria-label="Dials, meters and the prompt">
-				<StoryRail {extras} bind:section={railSection} />
-			</aside>
+			{#each visible as message (message.id)}
+				<MessageView
+					{message}
+					newest={newestReply?.id === message.id && !busy}
+					onreroll={() => (rerollOpen = true)}
+					onmenu={() => (menuFor = message)}
+				/>
+			{/each}
+			{#each notes as n (n.id)}
+				<aside class="note">
+					{#if n.title}<b>{n.title}</b>{/if}
+					<p class="prose">{n.text}</p>
+					<footer>
+						<span class="muted">shown once, not stored</span>
+						<button
+							type="button"
+							class="link"
+							onclick={() => (notes = notes.filter((x) => x.id !== n.id))}>Dismiss</button
+						>
+					</footer>
+				</aside>
+			{/each}
+			{#if pendingSent !== null}
+				<MessageView message={{ role: 'user', text: pendingSent }} />
+			{/if}
+			{#if pendingReply !== null}
+				<MessageView message={{ role: 'assistant', text: pendingReply }} streaming />
+			{/if}
 		{/if}
-	</div>
-</div>
+	</main>
 
-<Sheet bind:open={railOpen} title="This story" hint={story?.name}>
-	{#if extras}<StoryRail {extras} bind:section={railSection} />{/if}
-</Sheet>
+	{#if extras}
+		<MeterStrip
+			trackers={extras.trackers}
+			onopen={() => goto(`/story/${id}/settings?tab=meters`)}
+		/>
+	{/if}
+	<Composer bind:this={composer} {commands} {snippets} {busy} onsend={send} oncarryon={carryOn} />
+</div>
 
 <RerollSheet bind:open={rerollOpen} onreroll={reroll} />
 
@@ -444,29 +413,16 @@
 		display: flex;
 		flex-direction: column;
 	}
-	.body {
-		flex: 1;
-		min-height: 0;
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-	}
-	.column {
-		display: flex;
-		flex-direction: column;
-		min-height: 0;
-		min-width: 0;
-	}
-	.rail {
-		display: none;
-	}
 	.convo {
 		flex: 1;
-		overflow: auto;
-		padding: 12px 14px 16px;
+		min-height: 0; /* a flex child shrinks only when told to; without this nothing scrolls */
+		overflow-y: auto;
+		padding: 8px 10px 10px;
 		display: grid;
-		gap: 12px;
+		gap: 8px;
 		align-content: end;
 		overscroll-behavior: contain;
+		-webkit-overflow-scrolling: touch;
 	}
 	.center {
 		text-align: center;
@@ -519,21 +475,8 @@
 	}
 	@media (min-width: 900px) {
 		.screen {
-			max-width: 1180px;
+			max-width: 860px;
 			margin: 0 auto;
-		}
-		.body {
-			grid-template-columns: minmax(0, 1fr) 320px;
-		}
-		.rail {
-			display: block;
-			border-left: 1px solid var(--line);
-			padding: 16px;
-			overflow: auto;
-			min-height: 0;
-		}
-		:global(.rail-button) {
-			display: none;
 		}
 	}
 </style>

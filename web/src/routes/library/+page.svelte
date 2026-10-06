@@ -204,6 +204,7 @@
 	}
 	.list {
 		flex: 1;
+		min-height: 0;
 		overflow: auto;
 		padding: 4px 12px 24px;
 		display: grid;

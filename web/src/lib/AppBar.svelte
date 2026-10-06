@@ -32,14 +32,14 @@
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: calc(10px + var(--safe-top)) 14px 10px;
+		padding: calc(6px + var(--safe-top)) 12px 6px;
 		position: sticky;
 		top: 0;
 		z-index: 10;
 		background: color-mix(in srgb, var(--bg) 86%, transparent);
 		backdrop-filter: blur(14px);
 		border-bottom: 1px solid var(--line);
-		min-height: 56px;
+		min-height: 48px;
 	}
 	.back {
 		text-decoration: none;

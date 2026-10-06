@@ -76,8 +76,8 @@
 
 <style>
 	.msg {
-		max-width: min(92%, 680px);
-		padding: 12px 14px;
+		max-width: min(96%, 720px);
+		padding: 9px 12px;
 		border-radius: var(--r-l);
 		background: var(--them);
 		border: 1px solid var(--line);
@@ -119,7 +119,7 @@
 		flex-wrap: wrap;
 		gap: 8px;
 		align-items: center;
-		margin-top: 8px;
+		margin-top: 5px;
 		font-size: 0.7rem;
 		color: var(--muted);
 	}
