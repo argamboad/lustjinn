@@ -45,6 +45,12 @@ sketch, the lessons airp paid for, and the roadmap.
   Custom allowlist must include that domain, or the tests cannot count.
 - **The gates, all clean before any commit:** `uv run pytest`, `uv run ruff check`,
   `uv run ruff format --check`, `uv run pyright` (strict).
+- **The web app lives in `web/`** (SvelteKit 5, static, a PWA): `npm ci` once, `npm run dev`
+  for the dev server against the local API, and its gates — `npm run lint` (prettier),
+  `npm run check` (svelte-check), `npm test` (vitest), `npm run build` — all clean before any
+  commit. The design tokens are `web/src/lib/theme.css`; every colour is a token defined for
+  both themes, and no component names a colour of its own. `node scripts/icons.mjs` renders the
+  icon set from `brand/logo.svg` when the logo changes.
 
 ## Workflow
 - **One PR per roadmap step, one commit per issue.** Branch `step/N-…` from `develop`; each issue of

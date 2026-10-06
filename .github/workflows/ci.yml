@@ -85,6 +85,41 @@ jobs:
       - name: pytest
         run: uv run pytest
 
+  # The web app's gates: format, types, unit tests, and a build that the static site would ship.
+  # About a billed minute; it runs beside the Python gates, not after them.
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash -e {0}
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: npm ci
+        run: npm ci
+
+      - name: prettier
+        run: npm run lint
+
+      - name: svelte-check
+        run: npm run check
+
+      - name: vitest
+        run: npm test
+
+      - name: build
+        run: npm run build
+
   deploy-staging:
     needs: gates
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'staging'
