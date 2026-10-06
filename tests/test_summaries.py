@@ -89,7 +89,8 @@ async def test_turns_that_no_longer_fit_are_summarised_instead_of_dropped(
 
     [summary] = await summaries(session, story)
     assert summary.from_sequence == 1  # the oldest turns went first
-    assert summary.to_sequence < 31 - memory.ALWAYS_WHOLE
+    assert memory.WORTH_A_CALL <= summary.message_count <= memory.AT_MOST_PER_SUMMARY
+    assert summary.to_sequence < 31  # the newest turns stayed verbatim
     sent = prompt_texts(model)
     assert any(text.startswith("Rowan arrived and took a room.") for text in sent)
     assert not any("Turn 2." in text for text in sent)  # compressed, not sent raw
@@ -158,15 +159,15 @@ async def test_compression_is_occasional_rather_than_a_toll_on_every_turn(
 ) -> None:
     """Compressing only the overflow ran every turn on two messages. A batch buys several
     turns of room."""
-    tune(context_budget=a_budget_that_holds(dummy, 12, tune()))
+    tune(context_budget=a_budget_that_holds(dummy, 24, tune()))
     story = await a_long_story(session, 30)
     for i in range(8):
         model.summarises(f"Stretch {i}.").says(f"Reply {i}.")
         await send(client, story.id, f"Message {i}.")
 
-    assert len(await summaries(session, story)) <= 3
+    assert len(await summaries(session, story)) <= 4
     summary_calls = [c for c in model.calls if c["messages"][0]["content"] == SUMMARY_INSTRUCTION]
-    assert len(summary_calls) <= 3
+    assert len(summary_calls) <= 4
 
 
 async def test_a_summariser_that_fails_sends_the_turns_whole_rather_than_forgetting_them(

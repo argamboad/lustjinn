@@ -11,6 +11,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -321,4 +322,35 @@ class Summary(Base):
     text: Mapped[str] = mapped_column(Text)
     model: Mapped[str | None] = mapped_column(String(200))
     message_count: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+EMBEDDING_DIMENSIONS = 1536
+"""What openai/text-embedding-3-small produces. The column refuses any other length."""
+
+
+class Embedding(Base):
+    """The vector of one summarised turn, for retrieval. Only turns a summary already covers
+    are embedded: the recent ones are in the prompt verbatim and need no recalling."""
+
+    __tablename__ = "embeddings"
+    __table_args__ = (
+        Index(
+            "ix_embeddings_vector",
+            "vector",
+            postgresql_using="hnsw",
+            postgresql_ops={"vector": "vector_cosine_ops"},
+        ),
+    )
+
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE"), primary_key=True
+    )
+    story_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("stories.id", ondelete="RESTRICT"), index=True
+    )
+    vector: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMENSIONS))
+    model: Mapped[str] = mapped_column(String(200))
+    """The embedding model. Vectors from different models do not compare; if the model changes,
+    the rows are made again."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

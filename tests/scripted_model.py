@@ -5,6 +5,7 @@ sent, so a test can assert on the prompt, the model, the temperature — and fai
 one does: a status with an error body, a 200 with nothing in it, a reply cut off at the ceiling.
 """
 
+import hashlib
 import json
 from collections import deque
 from collections.abc import Callable
@@ -43,14 +44,43 @@ def _delta(generation: str, model: str, provider: str | None, content: str) -> J
     )
 
 
+KEYWORDS = ("ferrin", "dock", "knife", "silver")
+"""The axes of the test embedder: a text's vector says which of these words it contains. Two
+texts that share a word are near; texts with none of them all point the same, harmless way."""
+
+DIMENSIONS = 1536
+
+
+def keyword_vector(text: str) -> list[float]:
+    """A deterministic stand-in for an embedding: one axis per keyword. A text with none of them
+    points along an axis of its own, chosen from its hash, so two unrelated texts are orthogonal
+    rather than identical — and no vector is zero (cosine distance to zero is undefined)."""
+    lowered = text.lower()
+    vector = [0.0] * DIMENSIONS
+    found = False
+    for axis, word in enumerate(KEYWORDS):
+        if word in lowered:
+            vector[axis] = 1.0
+            found = True
+    if not found:
+        digest = int(hashlib.sha256(text.encode()).hexdigest(), 16)
+        vector[len(KEYWORDS) + digest % (DIMENSIONS - len(KEYWORDS))] = 1.0
+    return vector
+
+
 class ScriptedModel:
     """A queue of answers, each consumed by one call."""
 
     def __init__(self) -> None:
         self._answers: deque[Callable[[], httpx2.Response]] = deque()
         self.calls: list[Json] = []
-        """The body of every request that reached the model, in order."""
+        """The body of every chat request that reached the model, in order."""
         self.requests: list[httpx2.Request] = []
+        self.embedding_calls: list[list[str]] = []
+        """The texts of every embedding request, in order."""
+        self.embedder_down = False
+        """When True, the embeddings endpoint answers 503 — the chat endpoint still works."""
+        self.embedding_dimensions = DIMENSIONS
 
     @property
     def last(self) -> Json:
@@ -176,6 +206,8 @@ class ScriptedModel:
 
         def handle(request: httpx2.Request) -> httpx2.Response:
             self.requests.append(request)
+            if request.url.path.endswith("/embeddings"):
+                return self._embed(json.loads(request.content))
             if request.content:
                 self.calls.append(json.loads(request.content))
             if not self._answers:
@@ -186,6 +218,17 @@ class ScriptedModel:
 
     def client(self, settings: Settings) -> OpenRouter:
         return OpenRouter(settings, httpx2.AsyncClient(transport=self.transport()))
+
+    def _embed(self, body: Json) -> httpx2.Response:
+        texts: list[str] = body["input"]
+        self.embedding_calls.append(texts)
+        if self.embedder_down:
+            return httpx2.Response(503, json={"error": {"code": 503, "message": "embedder down"}})
+        data = [
+            {"index": i, "embedding": keyword_vector(text)[: self.embedding_dimensions]}
+            for i, text in enumerate(texts)
+        ]
+        return httpx2.Response(200, json={"data": data, "model": body["model"]})
 
     def _queue(self, answer: Callable[[], httpx2.Response]) -> Self:
         self._answers.append(answer)

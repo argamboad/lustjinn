@@ -79,6 +79,17 @@ class Settings(BaseSettings):
     same as for replies — it must not refuse — since a refusing summariser is a character that
     forgets."""
 
+    embedding_model: str | None = "openai/text-embedding-3-small"
+    """The model that embeds summarised turns for retrieval; None switches retrieval off.
+    DeepSeek offers no embeddings, so this stays on OpenRouter whatever writes the replies."""
+
+    recall_count: int = Field(default=4, ge=0, le=20)
+    """How many recalled turns a prompt may carry at most. A ceiling, not a target — and the
+    share of the budget (`recall_percent`) binds first."""
+
+    recall_threshold: float = Field(default=0.35, ge=0, le=1)
+    """The least cosine similarity a turn needs to be recalled. Below it, nothing is."""
+
     think_before_replying: bool = False
     """Whether a reply may spend tokens reasoning first. Off sends `reasoning: {enabled: false}`:
     without it the default model came back empty three times in five, every token spent

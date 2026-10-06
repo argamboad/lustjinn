@@ -15,8 +15,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn import background, ledger, tokens
-from lustjinn.context import Built, Layers, build, reader_name
-from lustjinn.models import Message, Persona, SpendKind, Story, Summary
+from lustjinn.context import Built, Layers, Recalled, build, reader_name
+from lustjinn.models import (
+    EMBEDDING_DIMENSIONS,
+    Embedding,
+    Message,
+    Persona,
+    Role,
+    SpendKind,
+    Story,
+    Summary,
+)
 from lustjinn.openrouter import ChatMessage, ModelError, OpenRouter, Reply
 from lustjinn.settings import Settings
 
@@ -150,10 +159,131 @@ async def summarise(
     return summary
 
 
-def _reserve(layers: Layers, settings: Settings) -> int:
-    """What the prompt costs before any history: the fixed layers, the reply, some slack."""
+BACKFILL_AT_MOST = 128
+"""Turns embedded in one call when a story's compressed turns have never been embedded (a long
+story meeting retrieval for the first time): the rest follow on later turns."""
+
+
+def retrieval_on(settings: Settings) -> bool:
+    return bool(settings.embedding_model) and settings.recall_count > 0
+
+
+async def backfill(
+    session: AsyncSession,
+    openrouter: OpenRouter,
+    settings: Settings,
+    story: Story,
+    covered: int,
+) -> int:
+    """Embeds the live, summarised turns that have no vector yet — the oldest first, at most
+    `BACKFILL_AT_MOST` per call. Returns how many were embedded."""
+    assert settings.embedding_model is not None
+    missing = list(
+        await session.scalars(
+            select(Message)
+            .outerjoin(Embedding, Embedding.message_id == Message.id)
+            .where(
+                Message.story_id == story.id,
+                Message.sequence <= covered,
+                Message.deleted_at.is_(None),
+                Embedding.message_id.is_(None),
+            )
+            .order_by(Message.sequence)
+            .limit(BACKFILL_AT_MOST)
+        )
+    )
+    if not missing:
+        return 0
+    vectors = await openrouter.embed([m.text for m in missing], model=settings.embedding_model)
+    for message, vector in zip(missing, vectors, strict=True):
+        if len(vector) != EMBEDDING_DIMENSIONS:
+            raise ModelError(
+                f"The embedding model returned {len(vector)} dimensions; the store holds "
+                f"{EMBEDDING_DIMENSIONS}.",
+                200,
+            )
+        session.add(
+            Embedding(
+                message_id=message.id,
+                story_id=story.id,
+                vector=vector,
+                model=settings.embedding_model,
+            )
+        )
+    await session.commit()
+    return len(missing)
+
+
+async def recall(
+    session: AsyncSession,
+    openrouter: OpenRouter,
+    settings: Settings,
+    story: Story,
+    covered: int,
+    query: str,
+) -> list[Recalled]:
+    """The summarised turns nearest to `query`, most relevant first, above the threshold, at
+    most `recall_count`. The builder caps them by budget share and puts them in story order."""
+    assert settings.embedding_model is not None
+    [wanted] = await openrouter.embed([query], model=settings.embedding_model)
+    distance = Embedding.vector.cosine_distance(wanted).label("distance")
+    rows = await session.execute(
+        select(Message.sequence, Message.role, Message.text, distance)
+        .join(Embedding, Embedding.message_id == Message.id)
+        .where(
+            Message.story_id == story.id,
+            Message.sequence <= covered,
+            Message.deleted_at.is_(None),
+        )
+        .order_by(distance)
+        .limit(settings.recall_count)
+    )
+    found: list[Recalled] = []
+    for sequence, role, text, how_far in rows:
+        if 1 - float(how_far) >= settings.recall_threshold:
+            found.append(Recalled(sequence, Role(role), text))
+    return found
+
+
+async def memories_for(
+    session: AsyncSession,
+    openrouter: OpenRouter,
+    settings: Settings,
+    story: Story,
+    covered: int,
+    recent: Sequence[Message],
+) -> list[Recalled]:
+    """Retrieval, when there is anything to retrieve from and anything to ask with. Any failure
+    — the embedding host down, a wrong dimension — costs the reader nothing but the memories."""
+    if covered <= 0 or not retrieval_on(settings):
+        return []
+    query = next((turn.text for turn in reversed(recent) if turn.role is Role.USER), None)
+    if query is None:
+        return []
+    try:
+        await backfill(session, openrouter, settings, story, covered)
+        return await recall(session, openrouter, settings, story, covered, query)
+    except ModelError as error:
+        log.warning("retrieval skipped: %s", error)
+        return []
+
+
+def _recall_estimate(settings: Settings, covered: int, recent: Sequence[Message]) -> int:
+    """Room to keep for the memories retrieval will add after the batch is decided: as many
+    turns as may be recalled, each about the size of a recent turn, within the recall share."""
+    if covered <= 0 or not retrieval_on(settings) or not recent:
+        return 0
+    mean = sum(tokens.for_message(turn.text) for turn in recent) // len(recent)
+    cap = settings.context_budget * settings.recall_percent // 100
+    return min(settings.recall_count * mean, cap)
+
+
+def _reserve(layers: Layers, settings: Settings, covered: int, recent: Sequence[Message]) -> int:
+    """What the prompt costs before any history: the fixed layers, the reply, some slack, and
+    the room the memories will take."""
     fixed = build(replace(layers, history=()), budget=None).estimated_tokens
-    return fixed + settings.max_tokens + ROOM_FOR_THE_REPLY
+    recalled = _recall_estimate(settings, covered, recent)
+    return fixed + recalled + settings.max_tokens + ROOM_FOR_THE_REPLY
 
 
 @dataclass(frozen=True)
@@ -185,18 +315,20 @@ async def compose(
     covered = summaries[-1].to_sequence if summaries else 0
     recent = [turn for turn in history if turn.sequence > covered]
 
-    def layers(turns: Sequence[Message]) -> Layers:
+    def layers(turns: Sequence[Message], memories: Sequence[Recalled] = ()) -> Layers:
         return Layers(
             character=story.character,
             persona=persona,
             summaries=[s.text for s in summaries],
             history=turns,
+            memories=memories,
             instruction=instruction,
         )
 
     summarised: Summary | None = None
     failed = False
-    allowance = max(0, settings.context_budget - _reserve(layers(()), settings))
+    reserve = _reserve(layers(()), settings, covered, recent)
+    allowance = max(0, settings.context_budget - reserve)
     batch = batch_to_compress(recent, allowance)
     if batch:
         try:
@@ -206,12 +338,14 @@ async def compose(
             failed = True
         if summarised is not None:
             summaries.append(summarised)
-            recent = [turn for turn in recent if turn.sequence > summarised.to_sequence]
+            covered = summarised.to_sequence
+            recent = [turn for turn in recent if turn.sequence > covered]
         else:
             failed = True
 
+    recalled = await memories_for(session, openrouter, settings, story, covered, recent)
     built = build(
-        layers(recent),
+        layers(recent, recalled),
         budget=None if failed else settings.context_budget,
         recall_percent=settings.recall_percent,
     )
