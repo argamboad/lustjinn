@@ -7,6 +7,7 @@ to OpenRouter beyond three things: the `provider` routing field, the `reasoning`
 """
 
 import json
+import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -33,6 +34,31 @@ SHIPPED_TEMPERATURES: dict[str, tuple[float, float]] = {
     "anthracite-org/magnum-v4-72b": (0.3, 0.9),
     "thedrummer/unslopnemo-12b": (0.3, 0.9),
 }
+
+
+SHIPPED_WINDOWS: dict[str, int] = {
+    "cognitivecomputations/dolphin-mistral-24b-venice-edition": 32_768,
+    "thedrummer/unslopnemo-12b": 131_072,
+}
+"""Each a base model's documented context, where the provider lists more. A provider's list says
+what a host will accept, not what the model was trained to read: Dolphin Venice is listed at 128k
+and built on Mistral Small 24B 2501, trained for 32k — given a 35k-token story it answered in
+token soup from the second line."""
+
+
+def window_of(settings: Settings, model: str, listed: int | None) -> int | None:
+    """The context a model can really use: a configured correction, a shipped one (never above
+    what the list says), or what the list says. None when nothing says."""
+    configured = next(
+        (w for m, w in settings.model_windows.items() if m.lower() == model.lower() and w > 0),
+        None,
+    )
+    if configured is not None:
+        return configured
+    shipped = next((w for m, w in SHIPPED_WINDOWS.items() if m.lower() == model.lower()), None)
+    if shipped is not None:
+        return shipped if listed is None else min(listed, shipped)
+    return listed
 
 
 def temperature_for(model: str, temperature: float) -> float:
@@ -434,6 +460,28 @@ def _per_million(pricing: Json, key: str) -> Decimal | None:
     except ArithmeticError:
         return None
     return per_token * 1_000_000 if per_token >= 0 else None
+
+
+CATALOGUE_TTL_SECONDS = 600
+_catalogue: tuple[float, list[ModelInfo]] | None = None
+
+
+async def catalogue(openrouter: OpenRouter) -> list[ModelInfo]:
+    """The provider's model list, read at most once per ten minutes for the process. A public
+    list, and one GET of it per story-model change is plenty; none on a send."""
+    global _catalogue
+    now = time.monotonic()
+    if _catalogue is not None and now - _catalogue[0] < CATALOGUE_TTL_SECONDS:
+        return _catalogue[1]
+    listed = await openrouter.models()
+    _catalogue = (now, listed)
+    return listed
+
+
+def forget_catalogue() -> None:
+    """Drops the cached list, so the next read asks again. Tests, and nothing else, need it."""
+    global _catalogue
+    _catalogue = None
 
 
 def get_openrouter(settings: Annotated[Settings, Depends(get_settings)]) -> OpenRouter:

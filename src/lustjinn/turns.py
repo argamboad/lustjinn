@@ -28,6 +28,7 @@ from lustjinn import (
     memory,
     regenerate,
     snippets,
+    story_model,
     trackers,
 )
 from lustjinn.db import get_session
@@ -294,9 +295,10 @@ async def reply(
     `instruction` is this turn's direction, if the reader gave one: the last layer of the
     prompt, and never a message.
     """
-    # The dials first: their text is a layer of the prompt, and their ceiling is room the
-    # memory must reserve. Then the memory — a summary if the story no longer fits — then the
-    # prompt is built.
+    # The budget fits the story's model, if it has one with a smaller window. Then the dials:
+    # their text is a layer of the prompt, and their ceiling is room the memory must reserve.
+    # Then the memory — a summary if the story no longer fits — then the prompt is built.
+    settings = story_model.fitted(settings, story)
     directives, knobs = await _dialled(session, story)
     ceiling = knobs.max_tokens or settings.max_tokens
     meters = await trackers.of(session, story.id)
@@ -451,6 +453,7 @@ async def ask(
     grounded in exactly what the character can see, and on a caching host it is nearly free.
     Nothing goes into `messages`: an asking is not a turn.
     """
+    settings = story_model.fitted(settings, story)
     history = await _visible(session, story.id)
     # The same compose as a turn — the dials' text and the room their ceiling takes included —
     # so the answer is grounded in exactly what the character can see, and so a question can

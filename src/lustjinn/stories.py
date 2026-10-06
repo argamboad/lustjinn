@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn.db import get_session
 from lustjinn.models import Character, Message, Persona, Role, Story
+from lustjinn.openrouter import OpenRouter, get_openrouter
+from lustjinn.settings import Settings, get_settings
 
 router = APIRouter(prefix="/stories", tags=["stories"])
 
@@ -132,20 +134,47 @@ async def visible_story(session: AsyncSession, story_id: uuid.UUID) -> Story:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_story(new: NewStory, session: Session) -> StoryWithMessages:
-    """Starts a story. If the character has an opening, it becomes the story's first message."""
+async def create_story(
+    new: NewStory,
+    session: Session,
+    openrouter: Annotated[OpenRouter, Depends(get_openrouter)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StoryWithMessages:
+    """Starts a story. If the character has an opening, it becomes the story's first message.
+    A model named here is checked as a change of model would be."""
+    from lustjinn import story_model  # here, not at the top: story_model imports this module
+
     character = await session.get(Character, new.character_id)
     if character is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no character with that id."
         )
-    if new.persona_id is not None and await session.get(Persona, new.persona_id) is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no persona with that id."
+    persona = None
+    if new.persona_id is not None:
+        persona = await session.get(Persona, new.persona_id)
+        if persona is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no persona with that id."
+            )
+    checked = None
+    if new.model is not None:
+        checked = await story_model.check(
+            session,
+            openrouter,
+            settings,
+            new.model,
+            character=character,
+            persona=persona,
+            story_id=None,
+            keeping=None,
         )
 
     story = Story(
-        name=new.name, character_id=character.id, persona_id=new.persona_id, model=new.model
+        name=new.name,
+        character_id=character.id,
+        persona_id=new.persona_id,
+        model=None if checked is None else checked.model,
+        model_context=None if checked is None else checked.context,
     )
     session.add(story)
     if character.opening:

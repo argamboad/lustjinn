@@ -194,6 +194,9 @@ class Story(Base):
     )
     model: Mapped[str | None] = mapped_column(String(200))
     """The model this story plays on; None means the default."""
+    model_context: Mapped[int | None]
+    """The window that model was checked against when it was set, so the budget can be fitted
+    to it on every turn without reading the list again. None when nothing said."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     """Set when the story is deleted: it is hidden, and its rows stay."""
