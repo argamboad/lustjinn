@@ -69,6 +69,45 @@ export type Done =
 	| { kind: 'said'; text: string }
 	| { kind: 'error'; detail: string; sent: Message | null };
 
+export interface Entry {
+	id: string;
+	name: string;
+	hidden: boolean;
+	version: number;
+	updated_at: string;
+	preview: string;
+}
+
+export interface EntryFull extends Entry {
+	text: string;
+	opening: string | null;
+	used_by: string[];
+}
+
+export interface Defaults {
+	default_persona_id: string | null;
+	default_persona_name: string | null;
+}
+
+export interface StorySpend {
+	story_id: string;
+	name: string;
+	calls: number;
+	cost: string;
+	discarded_calls: number;
+	discarded_cost: string;
+	unpriced: number;
+	cached_share: number | null;
+}
+
+export interface SpendReport {
+	calls: number;
+	cost: string;
+	discarded_cost: string;
+	unpriced: number;
+	by_story: StorySpend[];
+}
+
 export interface Command {
 	name: string;
 	usage: string;
@@ -189,7 +228,25 @@ export const api = {
 	renameStory: (id: string, name: string) => json<Story>('PATCH', `/stories/${id}`, { name }),
 	deleteStory: (id: string) => call('DELETE', `/stories/${id}`).then(() => undefined),
 
+	branch: (storyId: string, messageId: string, name?: string) =>
+		json<StoryWithMessages>('POST', `/stories/${storyId}/branch`, {
+			message_id: messageId,
+			name: name ?? null
+		}),
+	deleteFrom: (storyId: string, messageId: string) =>
+		json<{ story: StoryWithMessages; hidden: number }>(
+			'DELETE',
+			`/stories/${storyId}/messages/${messageId}`
+		),
+
 	commands: () => json<Command[]>('GET', '/commands'),
+	characters: () => json<Entry[]>('GET', '/library/characters'),
+	personas: () => json<Entry[]>('GET', '/library/personas'),
+	snippets: () => json<EntryFull[]>('GET', '/library/snippets'),
+	defaults: () => json<Defaults>('GET', '/library/settings'),
+	spend: (from?: string) =>
+		json<SpendReport>('GET', from ? `/spend?from_at=${encodeURIComponent(from)}` : '/spend'),
+	storySpend: (storyId: string) => json<StorySpend>('GET', `/stories/${storyId}/spend`),
 
 	/**
 	 * Sends what the reader typed and streams the reply: `onDelta` gets each piece of text as it

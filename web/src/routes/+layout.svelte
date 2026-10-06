@@ -2,6 +2,7 @@
 	import '#lib/theme.css';
 	import { onMount } from 'svelte';
 	import SignIn from '#lib/SignIn.svelte';
+	import Toasts from '#lib/Toasts.svelte';
 	import Waking from '#lib/Waking.svelte';
 	import { server } from '#lib/health.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
@@ -33,3 +34,4 @@
 {:else}
 	{@render children()}
 {/if}
+<Toasts />
