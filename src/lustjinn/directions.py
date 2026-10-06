@@ -17,3 +17,23 @@ rather than assume what the user does — is phrased as "no exception", and it o
 "without waiting": the reply comes back as a beat that stops and asks. So this separates the two
 halves the rule conflates. Never writing the user still holds; stopping for them does not, this
 turn."""
+
+DIRECTION_FRAME = (
+    "A direction for this reply, from the reader, out of character. It is not something anyone "
+    "said aloud and nobody in the scene knows it was given. Write the next turn following it, "
+    "and still never write the user's words, actions or thoughts.\n\n"
+)
+
+
+def direction(text: str) -> str:
+    """A free-form direction for the next turn, framed. It replaces the carry-on wording rather
+    than joining it: both say what this turn should be, and two answers to that question in one
+    prompt is how a reply comes back trying to satisfy neither."""
+    return DIRECTION_FRAME + text.strip()
+
+
+def split(argument: str) -> tuple[str, str]:
+    """`/do`'s argument: the direction, and the message under it if there is one. The first
+    blank line divides them, so a direction may run to several lines and a message may too."""
+    head, _, tail = argument.strip().partition("\n\n")
+    return head.strip(), tail.strip()

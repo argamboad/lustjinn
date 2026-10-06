@@ -29,6 +29,14 @@ class Spec:
 # until then they are unknown here, and refused.
 COMMANDS: tuple[Spec, ...] = (
     Spec(
+        "do",
+        "/do <direction>",
+        "Steer the next reply with an out-of-character direction. Alone, the model writes the "
+        "next beat under it; with a blank line and a message under it, the message is sent and "
+        "the direction steers the reply. The direction is never stored",
+        "billed",
+    ),
+    Spec(
         "ask",
         "/ask <question>",
         "Ask about the story out of character. The answer is shown, never stored in the story",

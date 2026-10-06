@@ -93,3 +93,96 @@ async def test_carrying_on_needs_a_story_that_exists(client: httpx2.AsyncClient)
     missing = "01a10d31-0000-7000-8000-000000000000"
 
     assert (await client.post(f"/stories/{missing}/continue")).status_code == 404
+
+
+# --- /do ------------------------------------------------------------------------------------------
+
+
+async def test_a_direction_alone_writes_the_next_beat_under_it_with_no_reader_message(
+    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
+) -> None:
+    story = await a_played_story(session)
+    model.says("Mags gathers the cards and leaves without a word.")
+
+    streamed = await send(client, story.id, "/do have Mags leave the table")
+
+    assert streamed.done["sent"] is None
+    assert streamed.done["reply"]["text"].startswith("Mags gathers")
+    assert instruction_sent(model) == {
+        "role": "user",
+        "content": directions.DIRECTION_FRAME + "have Mags leave the table",
+    }
+    assert directions.CARRY_ON not in instruction_sent(model)["content"]  # replaced, not joined
+    stored = await messages(session, story, hidden=True)
+    assert [m.role for m in stored] == [Role.ASSISTANT, Role.ASSISTANT]
+    assert not any("have Mags leave" in m.text for m in stored)
+
+
+async def test_a_direction_over_a_message_sends_the_message_and_stores_only_that(
+    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
+) -> None:
+    story = await a_played_story(session)
+    model.says("She names a price.")
+
+    streamed = await send(
+        client, story.id, '/do she asks for twice the usual\n\n"How much for the week?"'
+    )
+
+    assert streamed.done["sent"]["text"] == '"How much for the week?"'
+    stored = await messages(session, story)
+    assert [m.text for m in stored][1:] == ['"How much for the week?"', "She names a price."]
+    assert not any("twice the usual" in m.text for m in stored)
+    # The history ends on the reader's turn, so the direction goes as `system`.
+    assert instruction_sent(model) == {
+        "role": "system",
+        "content": directions.DIRECTION_FRAME + "she asks for twice the usual",
+    }
+    assert model.last["messages"][-2] == {"role": "user", "content": '"How much for the week?"'}
+
+
+async def test_a_direction_may_run_to_several_lines_before_the_blank_one(
+    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
+) -> None:
+    story = await a_played_story(session)
+    model.says("Hm.")
+
+    await send(client, story.id, "/do slow down\nlet the room breathe\n\nI sit.")
+
+    assert instruction_sent(model)["content"].endswith("slow down\nlet the room breathe")
+    assert (await messages(session, story))[-2].text == "I sit."
+
+
+async def test_the_direction_is_part_of_what_is_asked_for(
+    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
+) -> None:
+    """The same message twice under one direction is one turn, retried; under another it is a
+    new ask."""
+    story = await a_played_story(session)
+    model.fails().says("Hm.").says("Hm again.")
+
+    first = await send(client, story.id, "/do keep it short\n\nI sit.")
+    retried = await send(client, story.id, "/do keep it short\n\nI sit.")
+    other = await send(client, story.id, "/do make it long\n\nI sit.")
+
+    assert first.error["sent"]["text"] == "I sit."
+    assert retried.done["sent"]["id"] == first.error["sent"]["id"]  # found, not stored again
+    assert other.done["sent"]["id"] != first.error["sent"]["id"]
+    assert len(model.calls) == 3
+
+
+async def test_a_bare_do_is_refused_with_its_usage(
+    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
+) -> None:
+    story = await a_played_story(session)
+
+    streamed = await send(client, story.id, "/do")
+
+    assert streamed.status == 422
+    assert "/do <direction>" in streamed.last[1]["detail"]
+    assert model.calls == []
+
+
+def test_the_split_is_on_the_first_blank_line() -> None:
+    assert directions.split("have Mags leave") == ("have Mags leave", "")
+    assert directions.split('slow down\n\n"Hello."\n\nMore.') == ("slow down", '"Hello."\n\nMore.')
+    assert directions.split("  one line\nand two  \n\n  said  ") == ("one line\nand two", "said")

@@ -89,4 +89,4 @@ def test_no_two_commands_share_a_name() -> None:
     assert len(set(names)) == len(names)
     assert find("ask") is not None
     assert find("ASK") is find("ask")
-    assert find("do") is None  # step 7's
+    assert find("do") is not None

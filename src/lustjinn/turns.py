@@ -352,9 +352,18 @@ async def reply(
 
 
 async def turn(
-    session: AsyncSession, openrouter: OpenRouter, settings: Settings, story: Story, text: str
+    session: AsyncSession,
+    openrouter: OpenRouter,
+    settings: Settings,
+    story: Story,
+    text: str,
+    instruction: str | None = None,
 ) -> AsyncIterator[str]:
-    """Keeps the reader's message — or finds it already kept — and asks for the reply."""
+    """Keeps the reader's message — or finds it already kept — and asks for the reply.
+
+    `instruction` is a direction sent with the message: part of what is asked for, so part of
+    the request's identity, and the prompt's last layer — never a message of its own.
+    """
     anchor = await session.scalar(
         select(func.max(Message.sequence)).where(
             Message.story_id == story.id,
@@ -362,7 +371,7 @@ async def turn(
             Message.deleted_at.is_(None),
         )
     )
-    digest = request_hash(story.id, anchor or 0, text)
+    digest = request_hash(story.id, anchor or 0, text, instruction)
     existing = await session.scalar(
         select(Message).where(Message.story_id == story.id, Message.request_hash == digest)
     )
@@ -406,7 +415,9 @@ async def turn(
         session.add(sent)
         await session.commit()  # before the model is called: a failed call loses nothing
 
-    async for event in reply(session, openrouter, settings, story, sent=sent):
+    async for event in reply(
+        session, openrouter, settings, story, sent=sent, instruction=instruction
+    ):
         yield event
 
 
@@ -516,6 +527,16 @@ async def send(
     match commands.parse(await _expanded(session, body.text)):
         case commands.Prose(text):
             return _streamed(turn(session, openrouter, settings, story, text))
+        case commands.Command(spec=commands.Spec(name="do"), argument=argument):
+            steer, message = directions.split(argument)
+            framed = directions.direction(steer)
+            if not message:
+                # The direction alone: a turn with nothing from the reader, written under it.
+                return _streamed(
+                    reply(session, openrouter, settings, story, sent=None, instruction=framed)
+                )
+            # The message is stored; the direction steers the reply and is stored nowhere.
+            return _streamed(turn(session, openrouter, settings, story, message, framed))
         case commands.Command(spec=commands.Spec(name="ask"), argument=question):
             return _streamed(ask(session, openrouter, settings, story, question))
         case commands.Command(spec=commands.Spec(name="tracker"), argument=argument):
