@@ -37,6 +37,9 @@ sketch, the lessons airp paid for, and the roadmap.
   Tests that need a character use the `dummy` fixture, never a few inline words.
 - `uv run uvicorn lustjinn.main:app --reload` — the API locally; settings come from `.env`
   (see `.env.example`).
+- **Token counting needs the network once:** tiktoken downloads `o200k_base` from
+  `openaipublic.blob.core.windows.net` on first use and caches it. A cloud environment with a
+  Custom allowlist must include that domain, or the tests cannot count.
 - **The gates, all clean before any commit:** `uv run pytest`, `uv run ruff check`,
   `uv run ruff format --check`, `uv run pyright` (strict).
 
