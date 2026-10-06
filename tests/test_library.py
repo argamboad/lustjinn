@@ -10,9 +10,9 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lustjinn.context import PERSONA_FRAME
 from lustjinn.library import Slug
 from lustjinn.models import AppSettings, Character, Persona, Snippet, Story, new_id
-from lustjinn.prompt import PERSONA_FRAME
 from scripts.seed_dummy import seed
 from tests.factories import a_character, a_persona, a_snippet, a_story
 from tests.scripted_model import ScriptedModel

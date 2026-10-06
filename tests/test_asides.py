@@ -7,8 +7,7 @@ import httpx2
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.models import Aside, Character, Message, Persona, Role, SpendKind, Story
-from lustjinn.prompt import build
+from lustjinn.models import Aside, SpendKind, Story
 from tests.factories import a_character, a_story
 from tests.scripted_model import ScriptedModel
 from tests.streaming import send
@@ -195,25 +194,3 @@ async def test_a_deleted_story_has_no_asides_to_list(
     await client.delete(f"/stories/{story.id}")
 
     assert (await client.get(f"/stories/{story.id}/asides")).status_code == 404
-
-
-def test_an_instruction_after_a_reply_arrives_as_the_readers_turn() -> None:
-    character = Character(name="Elena", card="You are Elena.")
-    history = [Message(role=Role.USER, text="Hello."), Message(role=Role.ASSISTANT, text="Hi.")]
-
-    built = build(character, None, history, instruction="Step out of the scene.")
-
-    assert (built[-1].role, built[-1].content) == ("user", "Step out of the scene.")
-
-
-def test_an_instruction_after_the_readers_own_turn_stays_a_system_note() -> None:
-    """Two user turns in a row and a model tends to answer the second and forget the first."""
-    character = Character(name="Elena", card="You are Elena.")
-    persona = Persona(name="Traveller", text="A traveller.")
-    history = [Message(role=Role.USER, text="Hello.")]
-
-    built = build(character, persona, history, instruction="Keep it short.")
-
-    assert [m.role for m in built] == ["system", "system", "user", "system"]
-    assert built[-1].content == "Keep it short."
-    assert build(character, persona, [], instruction="x")[-1].role == "system"

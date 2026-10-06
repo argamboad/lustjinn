@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import commands, ledger, prompt, snippets
+from lustjinn import commands, context, ledger, snippets
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
 from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
@@ -199,14 +199,18 @@ async def reply(
     `sent` is the reader's message the reply answers, already committed. `restore` is a reply
     hidden for this call (a reroll), to be shown again if nothing arrives to replace it.
     """
-    messages = prompt.build(
-        story.character, await _persona(session, story), await _visible(session, story.id)
+    built = context.build(
+        context.Layers(
+            character=story.character,
+            persona=await _persona(session, story),
+            history=await _visible(session, story.id),
+        )
     )
     model, temperature = _choice(story, settings, settings.temperature)
     written: Reply | None = None
     try:
         async for piece in openrouter.stream(
-            messages,
+            built.messages,
             model=model,
             temperature=temperature,
             max_tokens=settings.max_tokens,
@@ -320,17 +324,19 @@ async def ask(
     Nothing goes into `messages`: an asking is not a turn.
     """
     history = await _visible(session, story.id)
-    messages = prompt.build(
-        story.character,
-        await _persona(session, story),
-        history,
-        instruction=prompt.ask_directive(question),
+    built = context.build(
+        context.Layers(
+            character=story.character,
+            persona=await _persona(session, story),
+            history=history,
+            instruction=context.ask_directive(question),
+        )
     )
     model, temperature = _choice(story, settings, ASIDE_TEMPERATURE)
     answered: Reply | None = None
     try:
         async for piece in openrouter.stream(
-            messages,
+            built.messages,
             model=model,
             temperature=temperature,
             max_tokens=ASIDE_MAX_TOKENS,
