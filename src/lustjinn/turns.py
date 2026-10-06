@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import commands, context, dials, ledger, memory, snippets, trackers
+from lustjinn import commands, context, dials, directions, ledger, memory, snippets, trackers
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
 from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
@@ -264,11 +264,14 @@ async def reply(
     *,
     sent: Message | None,
     restore: Message | None = None,
+    instruction: str | None = None,
 ) -> AsyncIterator[str]:
     """Asks the model for the next reply and streams it; stores it with its ledger row.
 
     `sent` is the reader's message the reply answers, already committed. `restore` is a reply
     hidden for this call (a reroll), to be shown again if nothing arrives to replace it.
+    `instruction` is this turn's direction, if the reader gave one: the last layer of the
+    prompt, and never a message.
     """
     # The dials first: their text is a layer of the prompt, and their ceiling is room the
     # memory must reserve. Then the memory — a summary if the story no longer fits — then the
@@ -285,6 +288,7 @@ async def reply(
         await _visible(session, story.id),
         directives=directives,
         trackers=trackers.render(meters),
+        instruction=instruction,
         reply_tokens=ceiling,
     )
     model, temperature = _choice(
@@ -532,6 +536,18 @@ async def send(
                 f"/{name} is not a command, so nothing was sent and nothing was stored. To send "
                 "a line that begins with a slash, begin it with two.",
             )
+
+
+@router.post("/{story_id}/continue", responses=STREAMED)
+async def carry_on(
+    story_id: uuid.UUID, session: Session, openrouter: Model, settings: CurrentSettings
+) -> StreamingResponse:
+    """The model writes the next beat with nothing from the reader. Billed and stored as a
+    reply like any other, so it can be rerolled like any other."""
+    story = await _playable(session, story_id)
+    return _streamed(
+        reply(session, openrouter, settings, story, sent=None, instruction=directions.CARRY_ON)
+    )
 
 
 @router.get("/{story_id}/audit")
