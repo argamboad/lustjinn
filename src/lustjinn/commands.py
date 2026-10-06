@@ -57,6 +57,13 @@ COMMANDS: tuple[Spec, ...] = (
         needs_argument=False,
     ),
     Spec(
+        "fact",
+        "/fact <statement>",
+        "Pin something as true from now on, under the character's name. The extractor cannot "
+        "retire it",
+        "write",
+    ),
+    Spec(
         "tracker",
         "/tracker <name> <value>",
         "Set a meter by hand. The value is the last word, so a name of several words works",
