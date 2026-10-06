@@ -8,8 +8,11 @@ what the message would have cost and land in the story as nonsense the character
 to. Prose that genuinely starts with a slash is sent by doubling it.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Literal
+
+from fastapi import APIRouter
+from pydantic import BaseModel
 
 
 @dataclass(frozen=True)
@@ -131,3 +134,23 @@ def parse(text: str) -> Parsed:
     if spec.needs_argument and not argument:
         return Incomplete(spec)
     return Command(spec, argument)
+
+
+# --- the list, for the clients -------------------------------------------------------------------
+
+router = APIRouter(tags=["commands"])
+
+
+class SpecOut(BaseModel):
+    name: str
+    usage: str
+    summary: str
+    cost: Literal["free", "billed", "write"]
+    needs_argument: bool
+
+
+@router.get("/commands")
+async def list_commands() -> list[SpecOut]:
+    """The slash commands the API accepts, for a composer's palette: the same list this module
+    enforces, so no client keeps a copy that drifts from it."""
+    return [SpecOut(**asdict(spec)) for spec in COMMANDS]

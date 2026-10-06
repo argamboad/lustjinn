@@ -13,6 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from lustjinn import (
     auth,
+    commands,
     dials,
     editing,
     export,
@@ -111,6 +112,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     # Everything below needs a valid token. A new router goes here, behind the guard, by default.
     app.include_router(stories.router, dependencies=[Depends(auth.require_user)])
+    app.include_router(commands.router, dependencies=[Depends(auth.require_user)])
     app.include_router(turns.router, dependencies=[Depends(auth.require_user)])
     app.include_router(library.router, dependencies=[Depends(auth.require_user)])
     app.include_router(dials.router, dependencies=[Depends(auth.require_user)])

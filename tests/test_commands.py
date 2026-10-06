@@ -6,6 +6,8 @@ character has to react to, and nothing can take it back. Reading prose as a comm
 a re-typed message.
 """
 
+import httpx2
+
 from lustjinn.commands import COMMANDS, Command, Incomplete, Prose, Unknown, find, parse
 
 
@@ -90,3 +92,25 @@ def test_no_two_commands_share_a_name() -> None:
     assert find("ask") is not None
     assert find("ASK") is find("ask")
     assert find("do") is not None
+
+
+async def test_the_api_lists_the_commands_it_enforces(client: httpx2.AsyncClient) -> None:
+    """A composer builds its palette from this, so it never shows a command the API refuses."""
+    response = await client.get("/commands")
+
+    assert response.status_code == 200
+    listed = response.json()
+    assert [c["name"] for c in listed] == [spec.name for spec in COMMANDS]
+    recap = next(c for c in listed if c["name"] == "recap")
+    assert recap == {
+        "name": "recap",
+        "usage": "/recap [turns]",
+        "summary": recap["summary"],
+        "cost": "free",
+        "needs_argument": False,
+    }
+    assert {c["cost"] for c in listed} == {"free", "billed", "write"}
+
+
+async def test_the_list_needs_a_token(anonymous: httpx2.AsyncClient) -> None:
+    assert (await anonymous.get("/commands")).status_code == 401
