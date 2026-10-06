@@ -114,6 +114,12 @@ export function whenSignedOut(handler: () => void) {
 	onSignedOut = handler;
 }
 
+/** Called when a call could not reach the API at all: the server store goes back to knocking. */
+export let onUnreachable: () => void = () => {};
+export function whenUnreachable(handler: () => void) {
+	onUnreachable = handler;
+}
+
 function headers(json: boolean): HeadersInit {
 	const found: Record<string, string> = {};
 	if (json) found['Content-Type'] = 'application/json';
@@ -149,6 +155,7 @@ async function call(method: string, path: string, body?: unknown): Promise<Respo
 			body: body === undefined ? undefined : JSON.stringify(body)
 		});
 	} catch {
+		if (path !== '/health') onUnreachable();
 		throw new Unreachable('The server did not answer.');
 	}
 	if (response.status === 401) {

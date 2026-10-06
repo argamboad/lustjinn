@@ -1,5 +1,10 @@
 <script lang="ts">
 	import '#lib/theme.css';
+	import { onMount } from 'svelte';
+	import SignIn from '#lib/SignIn.svelte';
+	import Waking from '#lib/Waking.svelte';
+	import { server } from '#lib/health.svelte.ts';
+	import { session } from '#lib/session.svelte.ts';
 	import { theme } from '#lib/theme.svelte.ts';
 	import type { LayoutProps } from './$types';
 
@@ -10,10 +15,21 @@
 	$effect(() => {
 		theme.set(theme.mode);
 	});
+
+	// The static site opens instantly; the API may be asleep. Knock first, then show the app.
+	onMount(() => {
+		void server.wake();
+	});
 </script>
 
 <svelte:head>
 	<title>LustJinn</title>
 </svelte:head>
 
-{@render children()}
+{#if server.state !== 'up'}
+	<Waking />
+{:else if !session.signedIn}
+	<SignIn />
+{:else}
+	{@render children()}
+{/if}
