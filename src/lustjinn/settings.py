@@ -90,6 +90,23 @@ class Settings(BaseSettings):
     recall_threshold: float = Field(default=0.35, ge=0, le=1)
     """The least cosine similarity a turn needs to be recalled. Below it, nothing is."""
 
+    model_choices: list[str] = [
+        "cognitivecomputations/dolphin-mistral-24b-venice-edition",
+        "thedrummer/cydonia-24b-v4.1",
+        "anthracite-org/magnum-v4-72b",
+        "thedrummer/unslopnemo-12b",
+        "deepseek/deepseek-v4-pro",
+        "z-ai/glm-4.6",
+    ]
+    """The models a story may be offered, as a JSON list. The shipped six were each tried on
+    2026-10-01 with one scene at four temperatures: four roleplay finetunes chosen to be more
+    willing than the default, and two larger general models that wrote the scene once their
+    reasoning was off. Labelled with the provider's list prices, to compare by only."""
+
+    model_windows: dict[str, int] = {}
+    """The context a model can really use, by id, where it is smaller than the provider lists —
+    as a JSON object. A correction here is believed over the list and over the shipped ones."""
+
     think_before_replying: bool = False
     """Whether a reply may spend tokens reasoning first. Off sends `reasoning: {enabled: false}`:
     without it the default model came back empty three times in five, every token spent

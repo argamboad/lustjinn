@@ -29,10 +29,38 @@ class Spec:
 # until then they are unknown here, and refused.
 COMMANDS: tuple[Spec, ...] = (
     Spec(
+        "do",
+        "/do <direction>",
+        "Steer the next reply with an out-of-character direction. Alone, the model writes the "
+        "next beat under it; with a blank line and a message under it, the message is sent and "
+        "the direction steers the reply. The direction is never stored",
+        "billed",
+    ),
+    Spec(
+        "focus",
+        "/focus <who>",
+        "Hand the next reply to a named character. Nothing of the command is stored",
+        "billed",
+    ),
+    Spec(
         "ask",
         "/ask <question>",
         "Ask about the story out of character. The answer is shown, never stored in the story",
         "billed",
+    ),
+    Spec(
+        "recap",
+        "/recap [turns]",
+        "The story so far: the latest summary, then the last few turns word for word. Nothing "
+        "stored, nothing billed",
+        "free",
+        needs_argument=False,
+    ),
+    Spec(
+        "tracker",
+        "/tracker <name> <value>",
+        "Set a meter by hand. The value is the last word, so a name of several words works",
+        "write",
     ),
 )
 

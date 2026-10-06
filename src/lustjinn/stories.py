@@ -11,6 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn.db import get_session
 from lustjinn.models import Character, Message, Persona, Role, Story
+from lustjinn.openrouter import OpenRouter, get_openrouter
+from lustjinn.settings import Settings, get_settings
 
 router = APIRouter(prefix="/stories", tags=["stories"])
 
@@ -59,6 +61,9 @@ class MessageOut(BaseModel):
     text: str
     model: str | None
     provider: str | None
+    fell_back_from: str | None = None
+    """Set on a reply the default wrote because the story's own model could not: the clients
+    show a one-time warning, since the voice is a different model's."""
     sent_at: datetime
 
 
@@ -121,7 +126,8 @@ async def _one(session: AsyncSession, story_id: uuid.UUID) -> StoryOut:
     return _out(*row)
 
 
-async def _visible(session: AsyncSession, story_id: uuid.UUID) -> Story:
+async def visible_story(session: AsyncSession, story_id: uuid.UUID) -> Story:
+    """The story, or a 404 that does not say whether it was deleted or never existed."""
     story = await session.scalar(
         select(Story).where(Story.id == story_id, Story.deleted_at.is_(None))
     )
@@ -131,20 +137,47 @@ async def _visible(session: AsyncSession, story_id: uuid.UUID) -> Story:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_story(new: NewStory, session: Session) -> StoryWithMessages:
-    """Starts a story. If the character has an opening, it becomes the story's first message."""
+async def create_story(
+    new: NewStory,
+    session: Session,
+    openrouter: Annotated[OpenRouter, Depends(get_openrouter)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> StoryWithMessages:
+    """Starts a story. If the character has an opening, it becomes the story's first message.
+    A model named here is checked as a change of model would be."""
+    from lustjinn import story_model  # here, not at the top: story_model imports this module
+
     character = await session.get(Character, new.character_id)
     if character is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no character with that id."
         )
-    if new.persona_id is not None and await session.get(Persona, new.persona_id) is None:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no persona with that id."
+    persona = None
+    if new.persona_id is not None:
+        persona = await session.get(Persona, new.persona_id)
+        if persona is None:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no persona with that id."
+            )
+    checked = None
+    if new.model is not None:
+        checked = await story_model.check(
+            session,
+            openrouter,
+            settings,
+            new.model,
+            character=character,
+            persona=persona,
+            story_id=None,
+            keeping=None,
         )
 
     story = Story(
-        name=new.name, character_id=character.id, persona_id=new.persona_id, model=new.model
+        name=new.name,
+        character_id=character.id,
+        persona_id=new.persona_id,
+        model=None if checked is None else checked.model,
+        model_context=None if checked is None else checked.context,
     )
     session.add(story)
     if character.opening:
@@ -177,7 +210,7 @@ async def read_story(story_id: uuid.UUID, session: Session) -> StoryWithMessages
 
 @router.patch("/{story_id}")
 async def rename_story(story_id: uuid.UUID, rename: Rename, session: Session) -> StoryOut:
-    story = await _visible(session, story_id)
+    story = await visible_story(session, story_id)
     story.name = rename.name
     await session.commit()
     return await _one(session, story_id)
@@ -186,6 +219,6 @@ async def rename_story(story_id: uuid.UUID, rename: Rename, session: Session) ->
 @router.delete("/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_story(story_id: uuid.UUID, session: Session) -> None:
     """Hides the story. Its rows stay; erasing them for good is a separate, deliberate act."""
-    story = await _visible(session, story_id)
+    story = await visible_story(session, story_id)
     story.deleted_at = datetime.now(UTC)
     await session.commit()

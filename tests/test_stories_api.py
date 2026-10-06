@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lustjinn.models import Message, Role, Story, new_id
 from scripts.seed_dummy import Dummy, seed
 from tests.factories import a_character, a_message, a_persona, a_story
+from tests.scripted_model import ScriptedModel, a_listed_model
 
 Json = dict[str, Any]
 
@@ -54,16 +55,22 @@ async def test_a_character_with_no_opening_starts_an_empty_story(
     assert story["last_message_preview"] is None
 
 
-async def test_a_story_can_name_its_own_model(
-    client: httpx2.AsyncClient, session: AsyncSession
+async def test_a_story_can_name_its_own_model_if_the_provider_lists_it(
+    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
 ) -> None:
     character = await a_character(session)
+    model.lists(a_listed_model("some/model", 64_000, "0.000001", "0.000002"))
 
     story = await create(
         client, name="Elsewhere", character_id=str(character.id), model="some/model"
     )
+    refused = await client.post(
+        "/stories", json={"name": "Nowhere", "character_id": str(character.id), "model": "no/such"}
+    )
 
     assert story["model"] == "some/model"
+    assert refused.status_code == 422
+    assert "the provider does not list it" in refused.json()["detail"]
 
 
 async def test_the_name_is_trimmed_and_cannot_be_blank(

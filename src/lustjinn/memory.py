@@ -280,12 +280,19 @@ def _recall_estimate(settings: Settings, covered: int, recent: Sequence[Message]
     return min(settings.recall_count * mean, cap)
 
 
-def _reserve(layers: Layers, settings: Settings, covered: int, recent: Sequence[Message]) -> int:
+def _reserve(
+    layers: Layers,
+    settings: Settings,
+    covered: int,
+    recent: Sequence[Message],
+    reply_tokens: int | None = None,
+) -> int:
     """What the prompt costs before any history: the fixed layers, the reply, some slack, and
-    the room the memories will take."""
+    the room the memories will take. The reply's room is the ceiling this turn will send —
+    the response-length dial's when set — so the summariser and the builder agree."""
     fixed = build(replace(layers, history=()), budget=None).estimated_tokens
     recalled = _recall_estimate(settings, covered, recent)
-    return fixed + recalled + settings.max_tokens + ROOM_FOR_THE_REPLY
+    return fixed + recalled + (reply_tokens or settings.max_tokens) + ROOM_FOR_THE_REPLY
 
 
 @dataclass(frozen=True)
@@ -304,7 +311,10 @@ async def compose(
     persona: Persona | None,
     history: Sequence[Message],
     *,
+    directives: str | None = None,
+    trackers: str | None = None,
     instruction: str | None = None,
+    reply_tokens: int | None = None,
 ) -> Composed:
     """The prompt for the next call, after the memory has done what the story needs.
 
@@ -327,16 +337,18 @@ async def compose(
         return Layers(
             character=story.character,
             persona=persona,
+            directives=directives,
             facts=world,
             summaries=[s.text for s in summaries],
             history=turns,
             memories=memories,
+            trackers=trackers,
             instruction=instruction,
         )
 
     summarised: Summary | None = None
     failed = False
-    reserve = _reserve(layers(()), settings, covered, recent)
+    reserve = _reserve(layers(()), settings, covered, recent, reply_tokens)
     allowance = max(0, settings.context_budget - reserve)
     batch = batch_to_compress(recent, allowance)
     if batch:
