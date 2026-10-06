@@ -418,11 +418,16 @@
 		min-height: 0; /* a flex child shrinks only when told to; without this nothing scrolls */
 		overflow-y: auto;
 		padding: 8px 10px 10px;
-		display: grid;
+		display: flex;
+		flex-direction: column;
 		gap: 8px;
-		align-content: end;
 		overscroll-behavior: contain;
 		-webkit-overflow-scrolling: touch;
+	}
+	/* Short conversations sit at the bottom; long ones scroll. Never `align-content: end` here:
+	   content taller than the box then overflows upward, where no browser can scroll. */
+	.convo > :first-child {
+		margin-top: auto;
 	}
 	.center {
 		text-align: center;
@@ -433,7 +438,7 @@
 		padding: 16px;
 	}
 	.note {
-		justify-self: center;
+		align-self: center;
 		width: min(100%, 560px);
 		padding: 12px 14px;
 		border-radius: var(--r-m);
