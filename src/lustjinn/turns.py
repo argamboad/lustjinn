@@ -19,7 +19,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import commands, context, ledger, memory, snippets
+from lustjinn import commands, context, dials, ledger, memory, snippets
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
 from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
@@ -184,6 +184,13 @@ async def _persona(session: AsyncSession, story: Story) -> Persona | None:
     return story.persona if story.persona is not None else await default_persona(session)
 
 
+async def _dialled(session: AsyncSession, story: Story) -> tuple[str | None, dials.Sampler]:
+    """The story's dials: rendered for the directives layer, and resolved for the sampler."""
+    pack = dials.shipped()
+    values = await dials.values_of(session, story.id)
+    return dials.directives(pack, values), dials.sampler(pack, values)
+
+
 async def _visible(session: AsyncSession, story_id: uuid.UUID) -> list[Message]:
     rows = await session.scalars(
         select(Message)
@@ -242,7 +249,11 @@ async def reply(
     `sent` is the reader's message the reply answers, already committed. `restore` is a reply
     hidden for this call (a reroll), to be shown again if nothing arrives to replace it.
     """
-    # The memory runs first — a summary if the story no longer fits — then the prompt is built.
+    # The dials first: their text is a layer of the prompt, and their ceiling is room the
+    # memory must reserve. Then the memory — a summary if the story no longer fits — then the
+    # prompt is built.
+    directives, knobs = await _dialled(session, story)
+    ceiling = knobs.max_tokens or settings.max_tokens
     built = await memory.compose(
         session,
         openrouter,
@@ -250,15 +261,20 @@ async def reply(
         story,
         await _persona(session, story),
         await _visible(session, story.id),
+        directives=directives,
+        reply_tokens=ceiling,
     )
-    model, temperature = _choice(story, settings, settings.temperature)
+    model, temperature = _choice(
+        story, settings, settings.temperature if knobs.temperature is None else knobs.temperature
+    )
     written: Reply | None = None
     try:
         async for piece in openrouter.stream(
             built.messages,
             model=model,
             temperature=temperature,
-            max_tokens=settings.max_tokens,
+            max_tokens=ceiling,
+            frequency_penalty=knobs.frequency_penalty,
             reasoning=_reasoning(settings),
         ):
             if isinstance(piece, Reply):
@@ -373,8 +389,11 @@ async def ask(
     Nothing goes into `messages`: an asking is not a turn.
     """
     history = await _visible(session, story.id)
-    # The same compose as a turn — so the answer is grounded in exactly what the character can
-    # see, and so a question can trigger the same summary a turn would have.
+    # The same compose as a turn — the dials' text and the room their ceiling takes included —
+    # so the answer is grounded in exactly what the character can see, and so a question can
+    # trigger the same summary a turn would have. The question's own sampling stays cold and
+    # short whatever the dials say: it is an answer, not a reply.
+    directives, knobs = await _dialled(session, story)
     built = await memory.compose(
         session,
         openrouter,
@@ -382,7 +401,9 @@ async def ask(
         story,
         await _persona(session, story),
         history,
+        directives=directives,
         instruction=context.ask_directive(question),
+        reply_tokens=knobs.max_tokens or settings.max_tokens,
     )
     model, temperature = _choice(story, settings, ASIDE_TEMPERATURE)
     answered: Reply | None = None

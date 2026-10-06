@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
-from lustjinn import auth, library, stories, turns
+from lustjinn import auth, dials, library, stories, turns
 from lustjinn.db import dispose_engine
 from lustjinn.openrouter import close_http
 from lustjinn.settings import Settings, get_settings
@@ -98,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(stories.router, dependencies=[Depends(auth.require_user)])
     app.include_router(turns.router, dependencies=[Depends(auth.require_user)])
     app.include_router(library.router, dependencies=[Depends(auth.require_user)])
+    app.include_router(dials.router, dependencies=[Depends(auth.require_user)])
     return app
 
 

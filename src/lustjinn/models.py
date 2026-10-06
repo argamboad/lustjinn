@@ -204,6 +204,22 @@ class Story(Base):
     )
 
 
+class DialValue(Base):
+    """One dial a story has set. A story stores only the values it changed; a dial never set
+    and a dial cleared are the same state, so clearing deletes the row."""
+
+    __tablename__ = "dial_values"
+    __table_args__ = (UniqueConstraint("story_id", "key", name="uq_dial_values_story_key"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    story_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stories.id", ondelete="RESTRICT"))
+    key: Mapped[str] = mapped_column(String(100))
+    """The dial's key in the pack."""
+    value: Mapped[str] = mapped_column(Text)
+    """In stored form: a level index, true/false, an option key, a JSON array, or text."""
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Message(Base):
     """One turn. Append-only: a trigger refuses deleting a row or changing its text."""
 

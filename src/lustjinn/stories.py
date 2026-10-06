@@ -121,7 +121,8 @@ async def _one(session: AsyncSession, story_id: uuid.UUID) -> StoryOut:
     return _out(*row)
 
 
-async def _visible(session: AsyncSession, story_id: uuid.UUID) -> Story:
+async def visible_story(session: AsyncSession, story_id: uuid.UUID) -> Story:
+    """The story, or a 404 that does not say whether it was deleted or never existed."""
     story = await session.scalar(
         select(Story).where(Story.id == story_id, Story.deleted_at.is_(None))
     )
@@ -177,7 +178,7 @@ async def read_story(story_id: uuid.UUID, session: Session) -> StoryWithMessages
 
 @router.patch("/{story_id}")
 async def rename_story(story_id: uuid.UUID, rename: Rename, session: Session) -> StoryOut:
-    story = await _visible(session, story_id)
+    story = await visible_story(session, story_id)
     story.name = rename.name
     await session.commit()
     return await _one(session, story_id)
@@ -186,6 +187,6 @@ async def rename_story(story_id: uuid.UUID, rename: Rename, session: Session) ->
 @router.delete("/{story_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_story(story_id: uuid.UUID, session: Session) -> None:
     """Hides the story. Its rows stay; erasing them for good is a separate, deliberate act."""
-    story = await _visible(session, story_id)
+    story = await visible_story(session, story_id)
     story.deleted_at = datetime.now(UTC)
     await session.commit()
