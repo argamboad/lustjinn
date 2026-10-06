@@ -1,40 +1,65 @@
 <script lang="ts">
-	import type { Command } from '#lib/api.ts';
+	import type { Command, EntryFull } from '#lib/api.ts';
+	import { appendSnippet, searchEmoji, tokenAt } from '#lib/shortcodes.ts';
+	import type { Shortcode } from '#lib/emoji.ts';
 
 	/**
 	 * Where the reader writes: a textarea that grows, a gold send button that becomes "Carry on"
-	 * when there is nothing to send, and the command palette that opens on a leading slash with
-	 * what each command costs. Enter sends; Shift+Enter is a new line.
+	 * when there is nothing to send, the command palette on a leading slash with what each
+	 * command costs, and the shortcode picker on a `:` — snippets from the library and emoji.
+	 * Enter sends; Shift+Enter is a new line.
 	 */
 	let {
 		commands = [],
+		snippets = [],
 		busy = false,
 		onsend,
 		oncarryon
 	}: {
 		commands?: Command[];
+		snippets?: EntryFull[];
 		busy?: boolean;
 		onsend: (text: string) => void;
 		oncarryon: () => void;
 	} = $props();
 
 	let text = $state('');
+	let caret = $state(0);
 	let box: HTMLTextAreaElement | undefined = $state();
 	let selected = $state(0);
+	let picking = $state(false); // the : button opened the full snippet list
 
 	const empty = $derived(text.trim().length === 0);
+
 	/** The palette shows while the first word is a slash command still being typed. */
 	const typing = $derived.by(() => {
 		const match = /^\/(\S*)$/.exec(text);
 		return match ? match[1].toLowerCase() : null;
 	});
-	const matches = $derived.by(() => {
-		if (typing === null) return [];
-		return commands.filter((c) => c.name.startsWith(typing));
+	const commandMatches = $derived.by(() =>
+		typing === null ? [] : commands.filter((c) => c.name.startsWith(typing))
+	);
+
+	/** The `:name` under the caret, and what it could be: a snippet (inserted as its text, the
+	 * server expands a bare trigger too) or an emoji. */
+	const token = $derived(tokenAt(text, caret));
+	type Pick = { kind: 'snippet'; entry: EntryFull } | { kind: 'emoji'; code: Shortcode };
+	const picks = $derived.by((): Pick[] => {
+		if (picking) return snippets.map((entry) => ({ kind: 'snippet', entry }));
+		if (!token) return [];
+		const q = token.query.toLowerCase();
+		const matched: Pick[] = snippets
+			.filter((s) => s.name.toLowerCase().startsWith(q))
+			.slice(0, 5)
+			.map((entry) => ({ kind: 'snippet', entry }));
+		return [...matched, ...searchEmoji(q, 6).map((code) => ({ kind: 'emoji' as const, code }))];
 	});
 
+	const open = $derived(commandMatches.length > 0 || picks.length > 0);
+	const count = $derived(commandMatches.length || picks.length);
+
 	$effect(() => {
-		if (selected >= matches.length) selected = 0;
+		if (selected >= count) selected = 0;
 	});
 
 	export function focus() {
@@ -45,12 +70,36 @@
 		if (!box) return;
 		box.style.height = 'auto';
 		box.style.height = `${Math.min(box.scrollHeight, 160)}px`;
+		caret = box.selectionStart ?? text.length;
 	}
 
-	function complete(command: Command) {
+	function completeCommand(command: Command) {
 		text = `/${command.name} `;
-		grow();
-		box?.focus();
+		place(text.length);
+	}
+
+	function insert(pick: Pick) {
+		const value = pick.kind === 'snippet' ? pick.entry.text : pick.code.emoji;
+		if (picking || !token) {
+			text = appendSnippet(text, value);
+			picking = false;
+			place(text.length);
+			return;
+		}
+		const before = text.slice(0, token.start);
+		const after = text.slice(token.start + token.length);
+		const spaced = pick.kind === 'emoji' && after && !/^\s/.test(after) ? ' ' : '';
+		text = before + value + spaced + after;
+		place(before.length + value.length + spaced.length);
+	}
+
+	function place(at: number) {
+		requestAnimationFrame(() => {
+			grow();
+			box?.focus();
+			box?.setSelectionRange(at, at);
+			caret = at;
+		});
 	}
 
 	function send() {
@@ -61,24 +110,35 @@
 		}
 		onsend(text);
 		text = '';
+		caret = 0;
 		requestAnimationFrame(grow);
 	}
 
 	function keydown(event: KeyboardEvent) {
-		if (matches.length > 0 && typing !== null) {
+		if (open) {
 			if (event.key === 'ArrowDown') {
 				event.preventDefault();
-				selected = (selected + 1) % matches.length;
+				selected = (selected + 1) % count;
 				return;
 			}
 			if (event.key === 'ArrowUp') {
 				event.preventDefault();
-				selected = (selected - 1 + matches.length) % matches.length;
+				selected = (selected - 1 + count) % count;
 				return;
 			}
-			if (event.key === 'Tab' || (event.key === 'Enter' && matches[selected].name !== typing)) {
+			if (event.key === 'Escape') {
+				picking = false;
+				if (token) {
+					// Leave the text; the list closes until the next character.
+					caret = -1;
+				}
+				return;
+			}
+			const exactCommand = commandMatches.length > 0 && commandMatches[selected].name === typing;
+			if (event.key === 'Tab' || (event.key === 'Enter' && !exactCommand)) {
 				event.preventDefault();
-				complete(matches[selected]);
+				if (commandMatches.length > 0) completeCommand(commandMatches[selected]);
+				else insert(picks[selected]);
 				return;
 			}
 		}
@@ -90,15 +150,15 @@
 </script>
 
 <div class="composer">
-	{#if matches.length > 0}
+	{#if commandMatches.length > 0}
 		<div class="palette" role="listbox" aria-label="Commands">
-			{#each matches as command, i (command.name)}
+			{#each commandMatches as command, i (command.name)}
 				<button
 					type="button"
 					role="option"
 					aria-selected={i === selected}
 					class:sel={i === selected}
-					onclick={() => complete(command)}
+					onclick={() => completeCommand(command)}
 				>
 					<code>{command.usage}</code>
 					<span>{command.summary}</span>
@@ -106,16 +166,49 @@
 				</button>
 			{/each}
 		</div>
+	{:else if picks.length > 0}
+		<div class="palette" role="listbox" aria-label={picking ? 'Snippets' : 'Snippets and emoji'}>
+			{#each picks as pick, i (pick.kind === 'snippet' ? 's:' + pick.entry.id : 'e:' + pick.code.name)}
+				<button
+					type="button"
+					role="option"
+					aria-selected={i === selected}
+					class:sel={i === selected}
+					onclick={() => insert(pick)}
+				>
+					{#if pick.kind === 'snippet'}
+						<code>:{pick.entry.name}</code>
+						<span class="prose">{pick.entry.preview}</span>
+						<small>snippet</small>
+					{:else}
+						<code class="emoji">{pick.code.emoji}</code>
+						<span>:{pick.code.name}:</span>
+						<small>emoji</small>
+					{/if}
+				</button>
+			{/each}
+		</div>
 	{/if}
 	<div class="box" class:busy>
+		<button
+			type="button"
+			class="round"
+			aria-label="Insert a snippet"
+			aria-pressed={picking}
+			disabled={busy || snippets.length === 0}
+			title={snippets.length === 0 ? 'No snippets in the library yet' : 'Insert a snippet'}
+			onclick={() => (picking = !picking)}>:</button
+		>
 		<textarea
 			id="composer"
 			bind:this={box}
 			bind:value={text}
 			oninput={grow}
 			onkeydown={keydown}
+			onclick={grow}
+			onkeyup={grow}
 			rows="1"
-			placeholder="Write your turn, or / for a command"
+			placeholder="Write your turn, / for a command, : for a snippet"
 			aria-label="Your turn"
 			disabled={busy}
 			enterkeyhint="send"></textarea>
@@ -148,13 +241,13 @@
 	}
 	.box {
 		display: grid;
-		grid-template-columns: 1fr auto;
-		gap: 8px;
+		grid-template-columns: auto 1fr auto;
+		gap: 6px;
 		align-items: end;
 		background: var(--surface-2);
 		border: 1px solid var(--line-strong);
 		border-radius: 24px;
-		padding: 6px 6px 6px 14px;
+		padding: 6px 6px 6px 6px;
 	}
 	.box:focus-within {
 		border-color: var(--gold);
@@ -162,6 +255,26 @@
 	}
 	.box.busy {
 		opacity: 0.7;
+	}
+	.round {
+		width: 40px;
+		height: 40px;
+		border-radius: 50%;
+		border: 0;
+		background: transparent;
+		color: var(--fg-2);
+		font-family: var(--font-mono);
+		font-size: 1.1rem;
+		font-weight: 500;
+		display: grid;
+		place-items: center;
+	}
+	.round[aria-pressed='true'] {
+		background: var(--gold-soft);
+		color: var(--gold-text);
+	}
+	.round:disabled {
+		opacity: 0.4;
 	}
 	textarea {
 		font-family: var(--font-prose);
@@ -208,11 +321,12 @@
 		left: 12px;
 		right: 12px;
 		bottom: calc(100% - 4px);
+		max-height: 50vh;
+		overflow: auto;
 		background: var(--raised);
 		border: 1px solid var(--line-strong);
 		border-radius: var(--r-m);
 		box-shadow: var(--shadow);
-		overflow: hidden;
 		display: grid;
 	}
 	.palette button {
@@ -238,6 +352,10 @@
 	.palette code {
 		color: var(--gold-text);
 		white-space: nowrap;
+	}
+	.palette code.emoji {
+		font-family: inherit;
+		font-size: 1.1rem;
 	}
 	.palette span {
 		color: var(--fg-2);

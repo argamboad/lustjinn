@@ -15,10 +15,12 @@
 		Unreachable,
 		type Command,
 		type Done,
+		type EntryFull,
 		type Message,
 		type StoryWithMessages
 	} from '#lib/api.ts';
 	import { Extras } from '#lib/extras.svelte.ts';
+	import { expandEmoji } from '#lib/shortcodes.ts';
 	import { stories } from '#lib/stories.svelte.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
@@ -27,6 +29,7 @@
 	let story = $state<StoryWithMessages | null>(null);
 	let problem = $state<string | null>(null);
 	let commands = $state<Command[]>([]);
+	let snippets = $state<EntryFull[]>([]);
 	/** The reader's message as sent, before the API confirms it. */
 	let pendingSent = $state<string | null>(null);
 	/** The reply as it streams in. */
@@ -66,6 +69,10 @@
 	onMount(async () => {
 		try {
 			[story, commands] = await Promise.all([api.story(id), api.commands()]);
+			api
+				.snippets()
+				.then((found) => (snippets = found))
+				.catch(() => undefined);
 			extras = new Extras(id);
 			void extras.load();
 			await scrollToEnd(false);
@@ -167,7 +174,9 @@
 		}
 	}
 
-	function send(text: string) {
+	function send(typed: string) {
+		// Emoji shortcodes expand here; a bare `:name` is a snippet trigger the API expands.
+		const text = expandEmoji(typed);
 		pendingSent = text;
 		void scrollToEnd();
 		void run((onDelta) => api.send(id, text, onDelta));
@@ -333,7 +342,14 @@
 					}}
 				/>
 			{/if}
-			<Composer bind:this={composer} {commands} {busy} onsend={send} oncarryon={carryOn} />
+			<Composer
+				bind:this={composer}
+				{commands}
+				{snippets}
+				{busy}
+				onsend={send}
+				oncarryon={carryOn}
+			/>
 		</div>
 		{#if extras}
 			<aside class="rail" aria-label="Dials, meters and the prompt">
