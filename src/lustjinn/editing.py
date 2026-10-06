@@ -7,6 +7,7 @@ happened in this version of it.
 """
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -224,3 +225,77 @@ async def branch_story(
     name = body.name or await next_name(session, source.name)
     copy = await branch(session, source, through, name)
     return await read_story(copy.id, session)
+
+
+class Cut(BaseModel):
+    """What a cut left behind, so a client can say so."""
+
+    story: StoryWithMessages
+    hidden: int
+    summaries_removed: int
+    facts_removed: int
+    facts_reopened: int
+
+
+async def cut(session: AsyncSession, story: Story, start: Message) -> Cut:
+    """Hides `start` and every visible turn after it, and takes the memory of those turns with
+    it.
+
+    Hidden, never deleted: the rows stay, as the trigger insists. The memory is derived, and
+    memory of turns the story no longer has would tell the model about a scene that never
+    happened in this version — so a summary that reaches the cut goes, a fact extracted from
+    it goes (a pinned one stays: a person said it), and a fact those turns had retired is true
+    again. Meters cannot be rewound and keep their value; questions keep their answers.
+    """
+    now = datetime.now(UTC)
+    doomed = list(
+        await session.scalars(
+            select(Message).where(
+                Message.story_id == story.id,
+                Message.sequence >= start.sequence,
+                Message.deleted_at.is_(None),
+            )
+        )
+    )
+    for message in doomed:
+        message.deleted_at = now
+        message.request_hash = None  # sending the same words again is a new turn
+
+    summaries = list(
+        await session.scalars(
+            select(Summary).where(
+                Summary.story_id == story.id, Summary.to_sequence >= start.sequence
+            )
+        )
+    )
+    for summary in summaries:
+        await session.delete(summary)
+
+    facts = list(await session.scalars(select(Fact).where(Fact.story_id == story.id)))
+    removed = 0
+    reopened = 0
+    for fact in facts:
+        if fact.valid_from_sequence >= start.sequence and not fact.pinned:
+            await session.delete(fact)
+            removed += 1
+        elif fact.valid_to_sequence is not None and fact.valid_to_sequence >= start.sequence:
+            fact.valid_to_sequence = None
+            reopened += 1
+
+    await session.commit()
+    return Cut(
+        story=await read_story(story.id, session),
+        hidden=len(doomed),
+        summaries_removed=len(summaries),
+        facts_removed=removed,
+        facts_reopened=reopened,
+    )
+
+
+@router.delete("/messages/{message_id}")
+async def delete_from(story_id: uuid.UUID, message_id: uuid.UUID, session: Session) -> Cut:
+    """Cuts the story back to just before this message: it and everything after it are hidden,
+    with the memory those turns built. The rows stay in the table."""
+    story = await visible_story(session, story_id)
+    start = await _point(session, story_id, message_id)
+    return await cut(session, story, start)
