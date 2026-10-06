@@ -4,6 +4,11 @@
 	/** The bottom tabs of the top-level screens. */
 	const tabs = [
 		{ href: '/', label: 'Stories', icon: 'M4 5h16v3H4zM4 10.5h16v3H4zM4 16h10v3H4z' },
+		{
+			href: '/library',
+			label: 'Library',
+			icon: 'M4 4h5v16H4zM10 4h5v16h-5zM16.5 4.5l4 .8-3 15-4-.8z'
+		},
 		{ href: '/you', label: 'You', icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zm-7 8a7 7 0 0 1 14 0z' }
 	];
 

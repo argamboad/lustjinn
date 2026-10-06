@@ -84,6 +84,16 @@ export interface EntryFull extends Entry {
 	used_by: string[];
 }
 
+export type Shelf = 'characters' | 'personas' | 'snippets';
+
+export interface HistoryEntry {
+	version: number;
+	name: string;
+	text: string;
+	opening: string | null;
+	saved_at: string;
+}
+
 export interface Defaults {
 	default_persona_id: string | null;
 	default_persona_name: string | null;
@@ -190,11 +200,13 @@ export interface Command {
 	needs_argument: boolean;
 }
 
-/** A refusal from the API, with the reason it gave. */
+/** A refusal from the API, with the reason it gave, and the body for the few refusals that
+ * carry more than a sentence (a library save over a newer version carries the entry as it is). */
 export class ApiError extends Error {
 	constructor(
 		public readonly status: number,
-		message: string
+		message: string,
+		public readonly body: unknown = null
 	) {
 		super(message);
 	}
@@ -241,22 +253,27 @@ function headers(json: boolean): HeadersInit {
 	return found;
 }
 
-async function detailOf(response: Response): Promise<string> {
+async function detailOf(response: Response): Promise<[string, unknown]> {
+	let body: { detail?: unknown } = {};
 	try {
-		const body = (await response.json()) as { detail?: unknown };
-		if (typeof body.detail === 'string') return body.detail;
+		body = (await response.json()) as { detail?: unknown };
+		if (typeof body.detail === 'string') return [body.detail, body.detail];
 		if (Array.isArray(body.detail)) {
-			return body.detail
+			const said = body.detail
 				.map(
 					(p: { loc?: unknown[]; msg?: string }) =>
 						`${(p.loc ?? []).slice(-1)[0] ?? ''}: ${p.msg ?? ''}`
 				)
 				.join('; ');
+			return [said, body.detail];
+		}
+		if (body.detail && typeof body.detail === 'object' && 'message' in body.detail) {
+			return [String((body.detail as { message: unknown }).message), body.detail];
 		}
 	} catch {
 		/* no JSON body */
 	}
-	return `${response.status} ${response.statusText}`;
+	return [`${response.status} ${response.statusText}`, body.detail ?? null];
 }
 
 async function call(method: string, path: string, body?: unknown): Promise<Response> {
@@ -275,7 +292,10 @@ async function call(method: string, path: string, body?: unknown): Promise<Respo
 		token.set(null);
 		onSignedOut();
 	}
-	if (!response.ok) throw new ApiError(response.status, await detailOf(response));
+	if (!response.ok) {
+		const [message, detail] = await detailOf(response);
+		throw new ApiError(response.status, message, detail);
+	}
 	return response;
 }
 
@@ -332,8 +352,27 @@ export const api = {
 	audit: (storyId: string) => json<Audit>('GET', `/stories/${storyId}/audit`),
 	characters: () => json<Entry[]>('GET', '/library/characters'),
 	personas: () => json<Entry[]>('GET', '/library/personas'),
-	snippets: () => json<EntryFull[]>('GET', '/library/snippets'),
+	snippets: async (): Promise<EntryFull[]> => {
+		const listed = await json<Entry[]>('GET', '/library/snippets');
+		return Promise.all(listed.map((s) => json<EntryFull>('GET', `/library/snippets/${s.id}`)));
+	},
 	defaults: () => json<Defaults>('GET', '/library/settings'),
+	setDefaults: (default_persona_id: string | null) =>
+		json<Defaults>('PUT', '/library/settings', { default_persona_id }),
+	entries: (shelf: Shelf, hidden = false) =>
+		json<Entry[]>('GET', `/library/${shelf}${hidden ? '?hidden=true' : ''}`),
+	entry: (shelf: Shelf, id: string) => json<EntryFull>('GET', `/library/${shelf}/${id}`),
+	createEntry: (shelf: Shelf, body: { name: string; text: string; opening?: string | null }) =>
+		json<EntryFull>('POST', `/library/${shelf}`, body),
+	saveEntry: (
+		shelf: Shelf,
+		id: string,
+		body: { version: number; name?: string; text?: string; opening?: string | null }
+	) => json<EntryFull>('PATCH', `/library/${shelf}/${id}`, body),
+	deleteEntry: (shelf: Shelf, id: string) =>
+		call('DELETE', `/library/${shelf}/${id}`).then(() => undefined),
+	history: (shelf: Shelf, id: string) =>
+		json<HistoryEntry[]>('GET', `/library/${shelf}/${id}/history`),
 	spend: (from?: string) =>
 		json<SpendReport>('GET', from ? `/spend?from_at=${encodeURIComponent(from)}` : '/spend'),
 	storySpend: (storyId: string) => json<StorySpend>('GET', `/stories/${storyId}/spend`),
