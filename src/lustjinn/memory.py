@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn import background, ledger, tokens
 from lustjinn.context import Built, Layers, Recalled, build, reader_name
+from lustjinn.context import Fact as WorldFact
 from lustjinn.models import (
     EMBEDDING_DIMENSIONS,
     Embedding,
@@ -311,14 +312,21 @@ async def compose(
     built again from what remains. If the summariser fails, the turns go whole and the budget is
     set aside: over budget rather than discard.
     """
+    from lustjinn import facts  # here, not at the top: facts imports memory.transcript
+
     summaries = await summaries_of(session, story.id)
     covered = summaries[-1].to_sequence if summaries else 0
     recent = [turn for turn in history if turn.sequence > covered]
 
-    def layers(turns: Sequence[Message], memories: Sequence[Recalled] = ()) -> Layers:
+    def layers(
+        turns: Sequence[Message],
+        memories: Sequence[Recalled] = (),
+        world: Sequence[WorldFact] = (),
+    ) -> Layers:
         return Layers(
             character=story.character,
             persona=persona,
+            facts=world,
             summaries=[s.text for s in summaries],
             history=turns,
             memories=memories,
@@ -340,12 +348,20 @@ async def compose(
             summaries.append(summarised)
             covered = summarised.to_sequence
             recent = [turn for turn in recent if turn.sequence > covered]
+            # The same stretch, read once more for what it left true. Its failure is logged
+            # and nothing else: the summary stands, and the facts can be made again.
+            try:
+                await facts.extract(session, openrouter, settings, story, persona, batch)
+            except ModelError as error:
+                log.warning("fact extraction failed: %s", error)
         else:
             failed = True
 
     recalled = await memories_for(session, openrouter, settings, story, covered, recent)
+    # Read after the extraction, so a fact the stretch just established reaches this turn.
+    world = facts.world(await facts.live_facts(session, story.id))
     built = build(
-        layers(recent, recalled),
+        layers(recent, recalled, world),
         budget=None if failed else settings.context_budget,
         recall_percent=settings.recall_percent,
     )

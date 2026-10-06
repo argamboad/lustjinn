@@ -13,6 +13,7 @@ from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -353,4 +354,30 @@ class Embedding(Base):
     model: Mapped[str] = mapped_column(String(200))
     """The embedding model. Vectors from different models do not compare; if the model changes,
     the rows are made again."""
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Fact(Base):
+    """Something true in the story, from the turn it became true until the turn that made it
+    false. Live while `valid_to_sequence` is null. Extracted by a model after each summary, or
+    stated by a person — in which case `model` is null and the fact is pinned."""
+
+    __tablename__ = "facts"
+    __table_args__ = (
+        CheckConstraint(
+            "valid_to_sequence IS NULL OR valid_to_sequence >= valid_from_sequence", name="range"
+        ),
+        Index("ix_facts_story_live", "story_id", "valid_to_sequence"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    story_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stories.id", ondelete="RESTRICT"))
+    subject: Mapped[str] = mapped_column(String(200))
+    """Who or what it is about: a name, a place, a pair. Never "User"."""
+    text: Mapped[str] = mapped_column(Text)
+    valid_from_sequence: Mapped[int]
+    valid_to_sequence: Mapped[int | None]
+    model: Mapped[str | None] = mapped_column(String(200))
+    pinned: Mapped[bool] = mapped_column(Boolean, server_default="false")
+    """A person said so; the extractor cannot retire it. A person can."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

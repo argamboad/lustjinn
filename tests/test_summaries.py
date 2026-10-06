@@ -54,6 +54,10 @@ def prompt_texts(model: ScriptedModel) -> list[str]:
     return [m["content"] for m in model.last["messages"]]
 
 
+# Every summary is followed by a fact extraction (one more model call), so a scripted model
+# that summarises must also answer `extracts()` before the reply.
+
+
 def a_budget_that_holds(dummy: Dummy, turns: int, settings: Settings) -> int:
     """A budget with room for the fixed layers, the reply, and about `turns` turns."""
     fixed = tokens.for_message(dummy.card) + tokens.for_message(dummy.persona) + 40
@@ -83,7 +87,7 @@ async def test_turns_that_no_longer_fit_are_summarised_instead_of_dropped(
 ) -> None:
     tune(context_budget=a_budget_that_holds(dummy, 12, tune()))
     story = await a_long_story(session, 30)
-    model.summarises("Rowan arrived and took a room.").says("Hm.")
+    model.summarises("Rowan arrived and took a room.").extracts().says("Hm.")
 
     streamed = await send(client, story.id, "I come in.")
 
@@ -107,7 +111,7 @@ async def test_the_summary_reaches_the_prompt_ahead_of_the_recent_turns(
 ) -> None:
     tune(context_budget=a_budget_that_holds(dummy, 12, tune()))
     story = await a_long_story(session, 30)
-    model.summarises("Earlier, Rowan arrived.").says("Hm.")
+    model.summarises("Earlier, Rowan arrived.").extracts().says("Hm.")
 
     await send(client, story.id, "I come in.")
 
@@ -129,7 +133,7 @@ async def test_already_summarised_turns_are_not_summarised_again(
 ) -> None:
     tune(context_budget=a_budget_that_holds(dummy, 12, tune()))
     story = await a_long_story(session, 30)
-    model.summarises("First stretch.").says("Hm.")
+    model.summarises("First stretch.").extracts().says("Hm.")
     await send(client, story.id, "I come in.")
     [first] = await summaries(session, story)
 
@@ -139,7 +143,7 @@ async def test_already_summarised_turns_are_not_summarised_again(
             session, story, f"Later {i}. {FILLER}", Role.ASSISTANT if i % 2 else Role.USER
         )
     await session.commit()
-    model.summarises("Second stretch.").says("Hm.")
+    model.summarises("Second stretch.").extracts().says("Hm.")
     await send(client, story.id, "I go upstairs.")
 
     first_again, second = await summaries(session, story)
@@ -162,7 +166,7 @@ async def test_compression_is_occasional_rather_than_a_toll_on_every_turn(
     tune(context_budget=a_budget_that_holds(dummy, 24, tune()))
     story = await a_long_story(session, 30)
     for i in range(8):
-        model.summarises(f"Stretch {i}.").says(f"Reply {i}.")
+        model.summarises(f"Stretch {i}.").extracts().says(f"Reply {i}.")
         await send(client, story.id, f"Message {i}.")
 
     assert len(await summaries(session, story)) <= 4
@@ -233,7 +237,7 @@ async def test_a_summary_that_ran_to_the_ceiling_is_kept(
     tune(context_budget=a_budget_that_holds(dummy, 12, tune()))
     story = await a_long_story(session, 30)
     model.truncated("A long account of the evening that the ceiling cut off mid" + " word" * 40)
-    model.says("Hm.")
+    model.extracts().says("Hm.")
 
     await send(client, story.id, "I come in.")
 
@@ -250,14 +254,14 @@ async def test_the_summary_is_billed_as_its_own_kind_of_spending(
 ) -> None:
     tune(context_budget=a_budget_that_holds(dummy, 12, tune()))
     story = await a_long_story(session, 30)
-    model.summarises("Stretch.").says("Hm.")
+    model.summarises("Stretch.").extracts().says("Hm.")
 
     await send(client, story.id, "I come in.")
 
-    rows = sorted(await ledger(session, story), key=lambda r: r.kind)
-    assert [row.kind for row in rows] == [SpendKind.REPLY, SpendKind.SUMMARY]
-    assert rows[1].cost is not None
-    assert rows[1].message_id is None
+    rows = {row.kind: row for row in await ledger(session, story)}
+    assert sorted(rows) == [SpendKind.FACTS, SpendKind.REPLY, SpendKind.SUMMARY]
+    assert rows[SpendKind.SUMMARY].cost is not None
+    assert rows[SpendKind.SUMMARY].message_id is None
 
 
 async def test_the_summariser_is_asked_cold_and_without_a_reasoning_flag(
@@ -269,7 +273,7 @@ async def test_the_summariser_is_asked_cold_and_without_a_reasoning_flag(
 ) -> None:
     tune(context_budget=a_budget_that_holds(dummy, 12, tune()), background_model="cheap/model")
     story = await a_long_story(session, 30)
-    model.summarises("Stretch.").says("Hm.")
+    model.summarises("Stretch.").extracts().says("Hm.")
 
     await send(client, story.id, "I come in.")
 
@@ -278,7 +282,8 @@ async def test_the_summariser_is_asked_cold_and_without_a_reasoning_flag(
     assert summary_call["temperature"] == memory.SUMMARY_TEMPERATURE
     assert summary_call["max_tokens"] == memory.SUMMARY_MAX_TOKENS
     assert "reasoning" not in summary_call
-    assert model.calls[1]["model"] == tune().model  # the reply still goes to the story's model
+    assert model.calls[1]["model"] == "cheap/model"  # the extractor, on the same model
+    assert model.calls[2]["model"] == tune().model  # the reply still goes to the story's model
 
 
 async def test_the_reader_is_named_by_their_persona_rather_than_called_user(
@@ -290,7 +295,7 @@ async def test_the_reader_is_named_by_their_persona_rather_than_called_user(
 ) -> None:
     tune(context_budget=a_budget_that_holds(dummy, 12, tune()))
     story = await a_long_story(session, 30)
-    model.summarises("Stretch.").says("Hm.")
+    model.summarises("Stretch.").extracts().says("Hm.")
 
     await send(client, story.id, "I come in.")
 
@@ -309,7 +314,7 @@ async def test_a_question_can_trigger_the_summary_a_turn_would_have(
 ) -> None:
     tune(context_budget=a_budget_that_holds(dummy, 12, tune()))
     story = await a_long_story(session, 30)
-    model.summarises("Stretch.").says("It does not say.")
+    model.summarises("Stretch.").extracts().says("It does not say.")
 
     await send(client, story.id, "/ask how far is the harbour?")
 

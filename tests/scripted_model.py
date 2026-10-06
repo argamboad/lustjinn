@@ -134,6 +134,20 @@ class ScriptedModel:
         )
         return self.says(gist + padding * 4)
 
+    def extracts(
+        self,
+        facts: list[tuple[str, str]] = [],  # noqa: B006 — read only
+        retired: list[str] = [],  # noqa: B006
+        *,
+        fenced: bool = False,
+    ) -> Self:
+        """Answers the fact extractor's JSON: new facts as (subject, text), and ids to retire.
+        `fenced` wraps it in a Markdown code fence, as chatty models do."""
+        document = json.dumps(
+            {"facts": [{"subject": s, "text": t} for s, t in facts], "retired": retired}
+        )
+        return self.says(f"```json\n{document}\n```" if fenced else document)
+
     def says_unpriced(self, text: str) -> Self:
         """Answers without the API saying what it charged, as some hosts do."""
         return self.says(text, provider=None, cost=None, cached_tokens=None)
