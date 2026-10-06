@@ -95,6 +95,15 @@ class ScriptedModel:
         ]
         return self._queue(lambda: self._stream(chunks))
 
+    def summarises(self, gist: str) -> Self:
+        """Answers a summary that passes the credibility floor: the gist, padded with the kind
+        of sentence a real summary carries."""
+        padding = (
+            " Rowan took room seven and paid for a week. Isaure wrote the name in the ledger "
+            "without looking up. Blake watched the door from the corner table."
+        )
+        return self.says(gist + padding * 4)
+
     def says_unpriced(self, text: str) -> Self:
         """Answers without the API saying what it charged, as some hosts do."""
         return self.says(text, provider=None, cost=None, cached_tokens=None)

@@ -300,3 +300,25 @@ class Spend(Base):
     cost: Mapped[Decimal | None] = mapped_column(Numeric(18, 10))
     """What the call was charged, as the API reported it. None is "the API did not say", which
     is not zero. Exact decimal, never a float: hundreds of $0.0028 rows must add up."""
+
+
+class Summary(Base):
+    """A stretch of the story compressed into prose, carried forward once its turns no longer
+    fit. Derived from the transcript: it can always be made again, and deleting one loses
+    nothing that is not still in `messages`."""
+
+    __tablename__ = "summaries"
+    __table_args__ = (
+        UniqueConstraint("story_id", "from_sequence", name="uq_summaries_story_from"),
+        CheckConstraint("from_sequence <= to_sequence", name="range"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    story_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("stories.id", ondelete="RESTRICT"))
+    from_sequence: Mapped[int]
+    to_sequence: Mapped[int]
+    """Inclusive: the summary stands for every turn from `from_sequence` to `to_sequence`."""
+    text: Mapped[str] = mapped_column(Text)
+    model: Mapped[str | None] = mapped_column(String(200))
+    message_count: Mapped[int]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

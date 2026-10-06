@@ -74,6 +74,11 @@ class Settings(BaseSettings):
     allow_provider_fallbacks: bool | None = None
     """Whether OpenRouter may use hosts outside `prefer_providers`. None leaves it to the router."""
 
+    background_model: str | None = None
+    """The model for summaries and facts; None means the default model. Criterion one is the
+    same as for replies — it must not refuse — since a refusing summariser is a character that
+    forgets."""
+
     think_before_replying: bool = False
     """Whether a reply may spend tokens reasoning first. Off sends `reasoning: {enabled: false}`:
     without it the default model came back empty three times in five, every token spent
