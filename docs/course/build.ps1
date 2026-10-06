@@ -28,7 +28,8 @@ pandoc @chapters `
   --output course.typ
 if ($LASTEXITCODE -ne 0) { throw "pandoc failed with exit code $LASTEXITCODE" }
 
-typst compile course.typ $out
+# --root: the title page draws brand/logo.svg, which is outside docs/course.
+typst compile --root (Resolve-Path ../..) course.typ $out
 if ($LASTEXITCODE -ne 0) { throw "typst failed with exit code $LASTEXITCODE" }
 
 Write-Host "Built $out"
