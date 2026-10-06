@@ -41,6 +41,8 @@ back; `/models` lists the models a story may play on with their prices, and `PUT
 /stories/{id}/model` changes the story's — checked against the provider's list and the model's
 window first, and falling back to the default on a turn it cannot take.
 
+A story can be taken two ways or cut back: `POST /stories/{id}/branch` copies it up to a turn with the memory those turns built, and `DELETE /stories/{id}/messages/{message_id}` hides a turn and everything after it, memory included — the rows stay. `GET /search?q=` finds where a phrase was said, across stories or inside one; `GET /stories/{id}/export?format=` renders the transcript as Markdown, JSON or text; `GET /spend` and `GET /stories/{id}/spend` report what the ledger holds, discarded replies and unpriced calls told apart. `/stories/{id}/facts` lists, pins and retires what the story believes (`/fact <statement>` pins from the composer); `POST /stories/{id}/memory/rebuild` makes the summaries and facts again from the transcript; and `POST /stories/{id}/purge` erases a deleted story for good, keeping only its spend.
+
 The library is under `/library/{characters|personas|snippets}`: list, create, read, save (with
 the version the editor started from), delete (refused while a story uses the entry), and each
 entry's history. `/library/settings` names the default persona. A `:name` in a message expands
