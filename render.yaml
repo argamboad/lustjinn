@@ -18,3 +18,34 @@ services:
     envVars:
       - key: UV_VERSION
         value: "0.12.22"            # the same uv as development and CI
+
+  # The web app: a static site, which never sleeps, built from web/ with the API's URL baked in.
+  # VITE_API_URL is set in the dashboard once the API service has its URL (docs/DEPLOYMENT.md);
+  # the API's LUSTJINN_CORS_ORIGINS must then name this site's URL, or the browser is refused.
+  - type: web
+    name: lustjinn-web-staging
+    runtime: static
+    branch: develop
+    rootDir: web
+    buildCommand: npm ci && npm run build && echo "$RENDER_GIT_COMMIT" > build/version.txt
+    staticPublishPath: build
+    autoDeployTrigger: "off"
+    routes:
+      - type: rewrite               # a single-page app: every path is index.html
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex, nofollow
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /service-worker.js
+        name: Cache-Control
+        value: no-cache
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: VITE_API_URL
+        sync: false                 # the API service's URL, set by hand; no default in the cloud

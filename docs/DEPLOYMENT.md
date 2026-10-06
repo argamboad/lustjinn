@@ -43,6 +43,39 @@ GitHub → `argamboad/lustjinn` → **Settings → Secrets and variables → Act
 
 Without the hook secret, a deploy run ends green with a notice and deploys nothing.
 
+## The web app: a static site
+
+The PWA is a second service in `render.yaml`, `lustjinn-web-staging`: a **static site**, so it never
+sleeps and opens instantly, and shows the lamp while the API wakes. Render builds it from `web/`
+(`npm ci && npm run build`), serves `build/`, rewrites every path to `index.html` (a single-page
+app), and the build writes the commit to `/version.txt` for the deploy run to check.
+
+The site and the API have to know each other, which makes the first deploy a two-step dance:
+
+1. **The API's URL goes into the site's build.** Render → the static site → **Environment** →
+   `VITE_API_URL` = the API service's URL (`https://lustjinn-staging.onrender.com`, no trailing
+   slash). It is baked in at build time, so a change needs a new build.
+2. **The site's URL goes into the API's CORS list.** Render → `lustjinn-staging` → **Environment** →
+   `LUSTJINN_CORS_ORIGINS` = `["https://lustjinn-web-staging.onrender.com"]`. Without it the
+   browser is refused on every call; the API itself never is.
+
+Then, in GitHub's Actions secrets and variables:
+
+| Secret | Value |
+|---|---|
+| `RENDER_DEPLOY_HOOK_WEB_STAGING` | the static site's deploy hook URL |
+
+| Variable | Value |
+|---|---|
+| `WEB_STAGING_BASE_URL` | the static site's URL, without a trailing slash |
+
+A deploy run with **deploy = web-staging** (or **both**, for the API as well) fires the hook and
+waits until `/version.txt` says this commit. Each deploy costs a few billed Actions minutes for the
+waiting; Render's own build minutes are the static site's, which are free.
+
+Installing it: open the site on a phone and choose *Add to Home Screen* (Safari's share sheet;
+Chrome offers it). It opens full-screen under the logo, and the shell opens offline.
+
 ## When a deploy fails
 
 - **"did not report … within 15 minutes"** — read the deploy's log in Render's dashboard; the build
