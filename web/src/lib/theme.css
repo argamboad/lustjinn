@@ -1,0 +1,275 @@
+/* The design tokens, from the logo: navy is the ground, cream the ink, gold the one accent — and
+   gold means *you*. Dark first (the logo's own ground), light second, both first-class. Every
+   colour is a token defined for both themes; a component never names a colour of its own.
+   Approved by the owner on 2026-10-06 (GitHub #75). */
+
+:root {
+	--bg: #0a0d1b;
+	--bg-2: #0f1427;
+	--surface: #151b32;
+	--surface-2: #1d2440;
+	--raised: #242c4d;
+	--line: rgba(249, 242, 233, 0.1);
+	--line-strong: rgba(249, 242, 233, 0.22);
+	--fg: #f9f2e9;
+	--fg-2: #c9c2b8;
+	--muted: #8a8ea3;
+	--gold: #f5c269;
+	--gold-2: #e2a73c;
+	--gold-text: #f5c269;
+	--gold-ink: #0a0d1b;
+	--gold-soft: rgba(245, 194, 105, 0.14);
+	--gold-glow: rgba(245, 194, 105, 0.35);
+	--you: #1b2140;
+	--you-line: rgba(245, 194, 105, 0.35);
+	--them: #121830;
+	--ok: #7fd1a6;
+	--warn: #ffb86b;
+	--danger: #ff8080;
+	--info: #8fb8ff;
+	--scrim: rgba(0, 0, 0, 0.45);
+	--shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+	--font-ui: 'Outfit', 'Segoe UI', system-ui, sans-serif;
+	--font-prose: 'Literata', Georgia, 'Times New Roman', serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+	--r-s: 10px;
+	--r-m: 16px;
+	--r-l: 24px;
+	--r-pill: 999px;
+	--safe-top: env(safe-area-inset-top, 0px);
+	--safe-bottom: env(safe-area-inset-bottom, 0px);
+	color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+	:root:not([data-theme='dark']) {
+		--bg: #f9f2e9;
+		--bg-2: #f2e9db;
+		--surface: #fffaf3;
+		--surface-2: #f3eadc;
+		--raised: #ffffff;
+		--line: rgba(10, 13, 27, 0.1);
+		--line-strong: rgba(10, 13, 27, 0.22);
+		--fg: #0a0d1b;
+		--fg-2: #3d4158;
+		--muted: #767a8e;
+		--gold: #f5c269;
+		--gold-2: #d99a2b;
+		--gold-text: #a66f10;
+		--gold-ink: #0a0d1b;
+		--gold-soft: rgba(245, 194, 105, 0.22);
+		--gold-glow: rgba(217, 154, 43, 0.3);
+		--you: #fbeccc;
+		--you-line: rgba(166, 111, 16, 0.35);
+		--them: #ffffff;
+		--ok: #1f8a5b;
+		--warn: #b8640a;
+		--danger: #c2453d;
+		--info: #2f5fb8;
+		--scrim: rgba(10, 13, 27, 0.3);
+		--shadow: 0 18px 50px rgba(10, 13, 27, 0.14);
+		color-scheme: light;
+	}
+}
+
+:root[data-theme='light'] {
+	--bg: #f9f2e9;
+	--bg-2: #f2e9db;
+	--surface: #fffaf3;
+	--surface-2: #f3eadc;
+	--raised: #ffffff;
+	--line: rgba(10, 13, 27, 0.1);
+	--line-strong: rgba(10, 13, 27, 0.22);
+	--fg: #0a0d1b;
+	--fg-2: #3d4158;
+	--muted: #767a8e;
+	--gold: #f5c269;
+	--gold-2: #d99a2b;
+	--gold-text: #a66f10;
+	--gold-ink: #0a0d1b;
+	--gold-soft: rgba(245, 194, 105, 0.22);
+	--gold-glow: rgba(217, 154, 43, 0.3);
+	--you: #fbeccc;
+	--you-line: rgba(166, 111, 16, 0.35);
+	--them: #ffffff;
+	--ok: #1f8a5b;
+	--warn: #b8640a;
+	--danger: #c2453d;
+	--info: #2f5fb8;
+	--scrim: rgba(10, 13, 27, 0.3);
+	--shadow: 0 18px 50px rgba(10, 13, 27, 0.14);
+	color-scheme: light;
+}
+
+/* base */
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+html,
+body {
+	height: 100%;
+	margin: 0;
+	background: var(--bg);
+	color: var(--fg);
+}
+body {
+	font-family: var(--font-ui);
+	font-size: 16px;
+	line-height: 1.5;
+	-webkit-font-smoothing: antialiased;
+	overscroll-behavior-y: none;
+}
+h1,
+h2,
+h3,
+h4 {
+	margin: 0;
+	font-family: var(--font-ui);
+	line-height: 1.15;
+	text-wrap: balance;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+p {
+	margin: 0;
+}
+a {
+	color: var(--gold-text);
+}
+button,
+input,
+textarea,
+select {
+	font: inherit;
+	color: inherit;
+}
+button {
+	cursor: pointer;
+}
+:focus-visible {
+	outline: 2px solid var(--gold);
+	outline-offset: 2px;
+	border-radius: 6px;
+}
+code,
+.mono {
+	font-family: var(--font-mono);
+	font-size: 0.85em;
+}
+.prose {
+	font-family: var(--font-prose);
+}
+[hidden] {
+	display: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation: none !important;
+		transition: none !important;
+	}
+}
+
+/* the few shared classes: everything else is scoped to its component */
+.btn {
+	appearance: none;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 8px;
+	min-height: 44px;
+	padding: 10px 18px;
+	border-radius: var(--r-pill);
+	border: 1px solid transparent;
+	font-weight: 600;
+	font-size: 0.95rem;
+	background: var(--surface-2);
+	color: var(--fg);
+	transition:
+		transform 0.08s ease,
+		background 0.15s ease,
+		opacity 0.15s ease;
+}
+.btn:active {
+	transform: translateY(1px) scale(0.99);
+}
+.btn:disabled {
+	opacity: 0.5;
+	cursor: default;
+}
+.btn.primary {
+	background: var(--gold);
+	color: var(--gold-ink);
+	box-shadow: 0 8px 24px var(--gold-glow);
+}
+.btn.ghost {
+	background: transparent;
+	border-color: var(--line-strong);
+}
+.btn.icon {
+	width: 44px;
+	padding: 0;
+}
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 3px 10px;
+	border-radius: var(--r-pill);
+	font-size: 0.78rem;
+	font-weight: 500;
+	background: var(--surface-2);
+	color: var(--fg-2);
+	border: 1px solid var(--line);
+	white-space: nowrap;
+}
+.chip.gold {
+	background: var(--gold-soft);
+	color: var(--gold-text);
+	border-color: transparent;
+}
+.chip.warn {
+	color: var(--warn);
+}
+.chip.danger {
+	color: var(--danger);
+}
+.chip.ok {
+	color: var(--ok);
+}
+.field {
+	display: grid;
+	gap: 6px;
+}
+.field > span {
+	font-size: 0.82rem;
+	font-weight: 500;
+	color: var(--fg-2);
+}
+.input {
+	width: 100%;
+	min-height: 46px;
+	padding: 12px 14px;
+	border-radius: var(--r-s);
+	border: 1px solid var(--line-strong);
+	background: var(--surface-2);
+	color: var(--fg);
+}
+.input:focus {
+	outline: 2px solid var(--gold);
+	outline-offset: 0;
+	border-color: transparent;
+}
+.eyebrow {
+	font-size: 0.72rem;
+	letter-spacing: 0.14em;
+	text-transform: uppercase;
+	color: var(--gold-text);
+	font-weight: 600;
+}
+.muted {
+	color: var(--muted);
+}
