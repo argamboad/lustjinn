@@ -47,7 +47,7 @@ async def test_the_superseded_reply_is_not_in_the_prompt(
 
     await reroll(client, story.id)
 
-    assert model.last["messages"][-1] == {"role": "user", "content": "Hello."}
+    assert model.last["messages"][-2] == {"role": "user", "content": "Hello."}  # then the reason
     assert all("First version." not in m["content"] for m in model.last["messages"])
 
 

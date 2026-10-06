@@ -19,7 +19,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import commands, context, dials, directions, ledger, memory, snippets, trackers
+from lustjinn import (
+    commands,
+    context,
+    dials,
+    directions,
+    ledger,
+    memory,
+    regenerate,
+    snippets,
+    trackers,
+)
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
 from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
@@ -48,6 +58,17 @@ STREAMED: dict[int | str, dict[str, Any]] = {
 
 class Send(BaseModel):
     text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+class Reroll(BaseModel):
+    """Why the reply is being asked for again. Optional, and so is the body: a bare reroll asks
+    for the turn afresh."""
+
+    reason: regenerate.Reason = regenerate.Reason.NONE
+    instructions: (
+        Annotated[str, StringConstraints(strip_whitespace=True, max_length=2000)] | None
+    ) = None
+    """The reader's own guidance, framed as a direction — never read as the latest message."""
 
 
 class TurnDone(BaseModel):
@@ -641,9 +662,15 @@ async def list_asides(story_id: uuid.UUID, session: Session) -> list[AsideOut]:
 
 @router.post("/{story_id}/reroll", responses=STREAMED)
 async def reroll(
-    story_id: uuid.UUID, session: Session, openrouter: Model, settings: CurrentSettings
+    story_id: uuid.UUID,
+    session: Session,
+    openrouter: Model,
+    settings: CurrentSettings,
+    body: Reroll | None = None,
 ) -> StreamingResponse:
-    """Writes the newest reply again. The old one is hidden, and kept for the record."""
+    """Writes the newest reply again, with a reason. The old one is hidden, and kept for the
+    record; the reason becomes the prompt's last layer, which is the only thing that makes the
+    second attempt differ from the first."""
     story = await _playable(session, story_id)
     visible = await _visible(session, story.id)
     last = visible[-1] if visible else None
@@ -667,4 +694,15 @@ async def reroll(
     # wrote, and the ledger row for it stays.
     last.deleted_at = datetime.now(UTC)
     await session.commit()
-    return _streamed(reply(session, openrouter, settings, story, sent=None, restore=last))
+    asked = body or Reroll()
+    return _streamed(
+        reply(
+            session,
+            openrouter,
+            settings,
+            story,
+            sent=None,
+            restore=last,
+            instruction=regenerate.directive(asked.reason, asked.instructions),
+        )
+    )
