@@ -94,16 +94,17 @@ def overflowing(recent: Sequence[Message], allowance: int) -> int:
 def batch_to_compress(recent: Sequence[Message], allowance: int) -> list[Message]:
     """The oldest turns to compress now, or nothing.
 
-    Nothing unless something no longer fits. Then at least `WORTH_A_CALL` turns if there are that
-    many to spare after `ALWAYS_WHOLE`, at most `AT_MOST_PER_SUMMARY` — and never fewer than the
-    overflow itself, which is why the newest six are a limit on widening the batch, not a
-    guarantee: a backlog can reach past them.
+    Nothing unless something no longer fits. Then the overflow, widened to at least
+    `WORTH_A_CALL` turns, at most `AT_MOST_PER_SUMMARY` — and never any of the newest
+    `ALWAYS_WHOLE`, whatever the overflow: those are the scene in progress, and the newest of
+    them is the reader's own message. What still does not fit among them is the context
+    builder's to drop from this prompt (the newest never), not the summariser's to compress.
     """
     overflow = overflowing(recent, allowance)
     if overflow <= 0:
         return []
-    size = max(overflow, min(WORTH_A_CALL, len(recent) - ALWAYS_WHOLE))
-    return list(recent[: min(size, AT_MOST_PER_SUMMARY)])
+    size = min(max(overflow, WORTH_A_CALL), len(recent) - ALWAYS_WHOLE, AT_MOST_PER_SUMMARY)
+    return list(recent[:size]) if size > 0 else []
 
 
 def credible(summary: str, source: Sequence[Message]) -> bool:

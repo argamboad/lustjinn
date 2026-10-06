@@ -242,7 +242,8 @@ arguments only.
   the fact extractor on the **same stretch**.
 
 **Pitfalls:** `AlwaysWhole = 6` only limits batch *widening* — `max(overflow, …)` can still take
-newer turns. The 40 cap with one summary per turn means a big backlog drops un-compressed turns from
+newer turns, the reader's newest message included; the real playtest reproduced it, and Lustjinn
+makes the six a hard cap instead (#96). The 40 cap with one summary per turn means a big backlog drops un-compressed turns from
 *that* prompt until later turns catch up (they stay stored).
 
 ### Retrieval (#29)

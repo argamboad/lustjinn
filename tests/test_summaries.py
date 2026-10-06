@@ -358,13 +358,18 @@ def test_no_single_summary_is_asked_to_carry_a_whole_backlog() -> None:
     assert len(batch) == memory.AT_MOST_PER_SUMMARY
 
 
-def test_the_overflow_itself_is_always_compressed_even_past_the_newest_six() -> None:
-    """Six is a limit on widening, not a guarantee: the overflow must go."""
+def test_the_newest_six_turns_are_never_compressed_even_when_the_overflow_reaches_them() -> None:
+    """The real playtest of this step summarised the reader's own message (#96)."""
     one_turn = tokens.for_message(FILLER)
 
     batch = batch_to_compress(turns(20), allowance=one_turn * 3)  # 17 overflow
 
-    assert len(batch) == 17
+    assert len(batch) == 20 - memory.ALWAYS_WHOLE
+
+
+def test_nothing_is_compressed_when_only_the_newest_six_remain() -> None:
+    assert batch_to_compress(turns(6), allowance=0) == []
+    assert batch_to_compress(turns(4), allowance=0) == []
 
 
 def test_a_summary_must_account_for_what_it_replaces() -> None:
