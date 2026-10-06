@@ -5,8 +5,10 @@
 	import AppBar from '#lib/AppBar.svelte';
 	import Composer from '#lib/Composer.svelte';
 	import MessageView from '#lib/MessageView.svelte';
+	import MeterStrip from '#lib/MeterStrip.svelte';
 	import RerollSheet from '#lib/RerollSheet.svelte';
 	import Sheet from '#lib/Sheet.svelte';
+	import StoryRail from '#lib/StoryRail.svelte';
 	import {
 		api,
 		ApiError,
@@ -16,6 +18,7 @@
 		type Message,
 		type StoryWithMessages
 	} from '#lib/api.ts';
+	import { Extras } from '#lib/extras.svelte.ts';
 	import { stories } from '#lib/stories.svelte.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
@@ -35,6 +38,9 @@
 	let rerollOpen = $state(false);
 	let menuFor = $state<Message | null>(null);
 	let storyMenu = $state(false);
+	let extras = $state<Extras | null>(null);
+	let railOpen = $state(false);
+	let railSection = $state<'dials' | 'meters' | 'prompt'>('dials');
 	let renaming = $state(false);
 	let newName = $state('');
 	let cutConfirm = $state(false);
@@ -60,6 +66,8 @@
 	onMount(async () => {
 		try {
 			[story, commands] = await Promise.all([api.story(id), api.commands()]);
+			extras = new Extras(id);
+			void extras.load();
 			await scrollToEnd(false);
 		} catch (error) {
 			problem = error instanceof Error ? error.message : 'The story could not be read.';
@@ -132,6 +140,7 @@
 					);
 				}
 				touchStoryList();
+				void extras?.refresh(); // the meters may have moved; the audit has a new line
 				break;
 			}
 			case 'aside':
@@ -256,6 +265,12 @@
 	<AppBar title={story?.name ?? 'Story'} {sub} back="/">
 		{#snippet actions()}
 			<button
+				class="btn icon rail-button"
+				type="button"
+				aria-label="Dials and meters"
+				onclick={() => (railOpen = true)}>◐</button
+			>
+			<button
 				class="btn icon"
 				type="button"
 				aria-label="Story menu"
@@ -264,50 +279,73 @@
 		{/snippet}
 	</AppBar>
 
-	<main class="convo" bind:this={scroller}>
-		{#if problem}
-			<p class="problem">{problem}</p>
-		{:else if !story}
-			<p class="muted center">Opening the story…</p>
-		{:else}
-			{#if story.messages.length === 0 && !pendingSent}
-				<p class="muted center">
-					Nothing has been said yet. Write the first turn, or carry on to let {story.character_name} begin.
-				</p>
-			{/if}
-			{#each visible as message (message.id)}
-				<MessageView
-					{message}
-					newest={newestReply?.id === message.id && !busy}
-					onreroll={() => (rerollOpen = true)}
-					onmenu={() => (menuFor = message)}
-				/>
-			{/each}
-			{#each notes as n (n.id)}
-				<aside class="note">
-					{#if n.title}<b>{n.title}</b>{/if}
-					<p class="prose">{n.text}</p>
-					<footer>
-						<span class="muted">shown once, not stored</span>
-						<button
-							type="button"
-							class="link"
-							onclick={() => (notes = notes.filter((x) => x.id !== n.id))}>Dismiss</button
-						>
-					</footer>
-				</aside>
-			{/each}
-			{#if pendingSent !== null}
-				<MessageView message={{ role: 'user', text: pendingSent }} />
-			{/if}
-			{#if pendingReply !== null}
-				<MessageView message={{ role: 'assistant', text: pendingReply }} streaming />
-			{/if}
-		{/if}
-	</main>
+	<div class="body">
+		<div class="column">
+			<main class="convo" bind:this={scroller}>
+				{#if problem}
+					<p class="problem">{problem}</p>
+				{:else if !story}
+					<p class="muted center">Opening the story…</p>
+				{:else}
+					{#if story.messages.length === 0 && !pendingSent}
+						<p class="muted center">
+							Nothing has been said yet. Write the first turn, or carry on to let {story.character_name}
+							begin.
+						</p>
+					{/if}
+					{#each visible as message (message.id)}
+						<MessageView
+							{message}
+							newest={newestReply?.id === message.id && !busy}
+							onreroll={() => (rerollOpen = true)}
+							onmenu={() => (menuFor = message)}
+						/>
+					{/each}
+					{#each notes as n (n.id)}
+						<aside class="note">
+							{#if n.title}<b>{n.title}</b>{/if}
+							<p class="prose">{n.text}</p>
+							<footer>
+								<span class="muted">shown once, not stored</span>
+								<button
+									type="button"
+									class="link"
+									onclick={() => (notes = notes.filter((x) => x.id !== n.id))}>Dismiss</button
+								>
+							</footer>
+						</aside>
+					{/each}
+					{#if pendingSent !== null}
+						<MessageView message={{ role: 'user', text: pendingSent }} />
+					{/if}
+					{#if pendingReply !== null}
+						<MessageView message={{ role: 'assistant', text: pendingReply }} streaming />
+					{/if}
+				{/if}
+			</main>
 
-	<Composer bind:this={composer} {commands} {busy} onsend={send} oncarryon={carryOn} />
+			{#if extras}
+				<MeterStrip
+					trackers={extras.trackers}
+					onopen={() => {
+						railSection = 'meters';
+						railOpen = true;
+					}}
+				/>
+			{/if}
+			<Composer bind:this={composer} {commands} {busy} onsend={send} oncarryon={carryOn} />
+		</div>
+		{#if extras}
+			<aside class="rail" aria-label="Dials, meters and the prompt">
+				<StoryRail {extras} bind:section={railSection} />
+			</aside>
+		{/if}
+	</div>
 </div>
+
+<Sheet bind:open={railOpen} title="This story" hint={story?.name}>
+	{#if extras}<StoryRail {extras} bind:section={railSection} />{/if}
+</Sheet>
 
 <RerollSheet bind:open={rerollOpen} onreroll={reroll} />
 
@@ -390,6 +428,21 @@
 		display: flex;
 		flex-direction: column;
 	}
+	.body {
+		flex: 1;
+		min-height: 0;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.column {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+		min-width: 0;
+	}
+	.rail {
+		display: none;
+	}
 	.convo {
 		flex: 1;
 		overflow: auto;
@@ -450,8 +503,21 @@
 	}
 	@media (min-width: 900px) {
 		.screen {
-			max-width: 860px;
+			max-width: 1180px;
 			margin: 0 auto;
+		}
+		.body {
+			grid-template-columns: minmax(0, 1fr) 320px;
+		}
+		.rail {
+			display: block;
+			border-left: 1px solid var(--line);
+			padding: 16px;
+			overflow: auto;
+			min-height: 0;
+		}
+		:global(.rail-button) {
+			display: none;
 		}
 	}
 </style>

@@ -108,6 +108,80 @@ export interface SpendReport {
 	by_story: StorySpend[];
 }
 
+export type DialKind = 'scale' | 'toggle' | 'choice' | 'list' | 'text';
+
+export interface DialLevel {
+	label: string;
+	text: string | null;
+	value: number | null;
+	description: string | null;
+}
+
+export interface Dial {
+	key: string;
+	kind: DialKind;
+	lever: 'prompt' | 'sampler' | 'both';
+	maps: string | null;
+	enabled: boolean;
+	default: string | null;
+	title: string;
+	help: string;
+	levels: DialLevel[];
+	options: { key: string; label: string; text: string }[];
+	on_text: string | null;
+	template: string | null;
+	accepts: string | null;
+	examples: string[];
+}
+
+export interface StoryDial {
+	key: string;
+	title: string;
+	kind: DialKind;
+	enabled: boolean;
+	stored: string | null;
+	effective: string | null;
+	label: string | null;
+}
+
+export interface Tracker {
+	id: string;
+	name: string;
+	value: number;
+	max: number;
+	delta: number;
+	note: string | null;
+	means: string | null;
+	anchors: string | null;
+	rule: string | null;
+	updated_at_sequence: number | null;
+}
+
+export interface NewTracker {
+	name: string;
+	value?: number;
+	max?: number;
+	means?: string | null;
+	anchors?: string | null;
+	rule?: string | null;
+}
+
+export interface TurnAudit {
+	sequence: number;
+	sent_at: string;
+	hidden: boolean;
+	model: string | null;
+	provider: string | null;
+	estimated_prompt_tokens: number | null;
+	prompt_tokens: number | null;
+	completion_tokens: number | null;
+	context: string | null;
+}
+
+export interface Audit {
+	turns: TurnAudit[];
+}
+
 export interface Command {
 	name: string;
 	usage: string;
@@ -240,6 +314,22 @@ export const api = {
 		),
 
 	commands: () => json<Command[]>('GET', '/commands'),
+	dialPack: () => json<Dial[]>('GET', '/dials'),
+	storyDials: (storyId: string) => json<StoryDial[]>('GET', `/stories/${storyId}/dials`),
+	setDial: (storyId: string, key: string, value: string) =>
+		json<StoryDial>('PUT', `/stories/${storyId}/dials/${key}`, { value }),
+	clearDial: (storyId: string, key: string) =>
+		call('DELETE', `/stories/${storyId}/dials/${key}`).then(() => undefined),
+	trackers: (storyId: string) => json<Tracker[]>('GET', `/stories/${storyId}/trackers`),
+	addTracker: (storyId: string, body: NewTracker) =>
+		json<Tracker>('POST', `/stories/${storyId}/trackers`, body),
+	changeTracker: (storyId: string, name: string, body: Partial<Omit<NewTracker, 'name'>>) =>
+		json<Tracker>('PATCH', `/stories/${storyId}/trackers/${encodeURIComponent(name)}`, body),
+	removeTracker: (storyId: string, name: string) =>
+		call('DELETE', `/stories/${storyId}/trackers/${encodeURIComponent(name)}`).then(
+			() => undefined
+		),
+	audit: (storyId: string) => json<Audit>('GET', `/stories/${storyId}/audit`),
 	characters: () => json<Entry[]>('GET', '/library/characters'),
 	personas: () => json<Entry[]>('GET', '/library/personas'),
 	snippets: () => json<EntryFull[]>('GET', '/library/snippets'),
