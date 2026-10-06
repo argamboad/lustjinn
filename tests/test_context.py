@@ -326,3 +326,35 @@ def test_the_accounting_names_every_layer_that_contributed(dummy: Dummy) -> None
     assert built.spent["history"].tokens == tokens.for_message("One.") + tokens.for_message("Two.")
     assert built.estimated_tokens == sum(s.tokens for s in built.spent.values())
     assert built.budget == 32_000
+
+
+def test_the_audit_line_names_each_layer_its_tokens_and_what_was_dropped(dummy: Dummy) -> None:
+    built = build(
+        Layers(
+            character=heron(dummy),
+            history=long_story(100),
+            memories=memories(40),
+            instruction="Go on.",
+        ),
+        budget=tokens.for_message(dummy.card) + 1500,
+    )
+
+    line = built.describe()
+    card, memory, history, instruction = (
+        built.spent["character"],
+        built.spent["memories"],
+        built.spent["history"],
+        built.spent["instruction"],
+    )
+    assert line == (
+        f"character {card.tokens} · history {history.tokens} ({history.dropped} dropped) · "
+        f"memories {memory.tokens} ({memory.dropped} dropped) · instruction {instruction.tokens} · "
+        f"total {built.estimated_tokens}/{built.budget}"
+    )
+
+
+def test_the_audit_line_without_a_budget_has_no_denominator(dummy: Dummy) -> None:
+    built = build(Layers(character=heron(dummy), history=turns("Hi.")))
+
+    assert built.describe().endswith(f"· total {built.estimated_tokens}")
+    assert "/" not in built.describe().split("total")[1]

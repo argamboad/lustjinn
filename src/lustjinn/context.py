@@ -125,6 +125,18 @@ class Built:
     def estimated_tokens(self) -> int:
         return sum(layer.tokens for layer in self.spent.values())
 
+    def describe(self) -> str:
+        """One line that says what the prompt was built from, for the audit kept with each
+        reply: `character 2755 · persona 412 · history 1830 (12 dropped) · total 4997/32000`."""
+        parts = [
+            f"{name} {layer.tokens}" + (f" ({layer.dropped} dropped)" if layer.dropped else "")
+            for name, layer in self.spent.items()
+        ]
+        total = f"total {self.estimated_tokens}"
+        if self.budget is not None:
+            total += f"/{self.budget}"
+        return " · ".join([*parts, total])
+
 
 def _fit_memories(
     recalled: Sequence[Recalled], character: Character, persona: Persona | None, cap: int | None
