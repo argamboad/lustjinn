@@ -25,6 +25,7 @@ from lustjinn import (
     context,
     dials,
     directions,
+    facts,
     ledger,
     memory,
     recap,
@@ -561,6 +562,20 @@ async def recap_of(session: AsyncSession, story: Story, argument: str) -> AsyncI
     yield _event("done", Said(text=recap.format_recap(story.character.name, latest, turns, count)))
 
 
+async def pin_fact(session: AsyncSession, story: Story, statement: str) -> AsyncIterator[str]:
+    """`/fact <statement>`: true from now on, pinned, filed under the character — a fact is
+    about someone, and the one this story is about is the one a reader means when they do
+    not say. No model call."""
+    await facts.pin(session, story, story.character.name, statement)
+    yield _event(
+        "done",
+        Said(
+            text=f"Pinned under {story.character.name}. It is in every prompt from the next "
+            "turn on, and the extractor cannot retire it."
+        ),
+    )
+
+
 async def set_tracker(session: AsyncSession, story: Story, argument: str) -> AsyncIterator[str]:
     """`/tracker <name> <value>`: moves a meter by hand and says so. No model call."""
     split = trackers.split_command(argument)
@@ -620,6 +635,8 @@ async def send(
             return _streamed(ask(session, openrouter, settings, story, question))
         case commands.Command(spec=commands.Spec(name="recap"), argument=argument):
             return _streamed(await _started(recap_of(session, story, argument)))
+        case commands.Command(spec=commands.Spec(name="fact"), argument=statement):
+            return _streamed(pin_fact(session, story, statement))
         case commands.Command(spec=commands.Spec(name="tracker"), argument=argument):
             # Checked before the stream opens, so a refusal is a 4xx and not a stream of one.
             return _streamed(await _started(set_tracker(session, story, argument)))

@@ -14,16 +14,22 @@ import json
 import logging
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
+from typing import Annotated
 
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, ConfigDict, StringConstraints
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn import background, ledger
 from lustjinn.context import Fact as WorldFact
+from lustjinn.db import get_session
 from lustjinn.memory import transcript
 from lustjinn.models import Fact, Message, Persona, SpendKind, Story
 from lustjinn.openrouter import ChatMessage, OpenRouter, Reply
 from lustjinn.settings import Settings
+from lustjinn.stories import visible_story
 
 log = logging.getLogger(__name__)
 
@@ -182,3 +188,99 @@ async def extract(
     retired = sum(1 for prefix in retired_ids if retire(existing, prefix, last) is not None)
     await session.commit()
     return len(found), retired
+
+
+# --- editing by hand ------------------------------------------------------------------------------
+#
+# A wrong fact is injected into every prompt until something contradicts it — and since the
+# character acts on it, nothing does. So a person can see what the story believes, add to it,
+# and retire from it. What a person adds is pinned: the extractor cannot retire it. What a
+# person retires is retired, pinned or not.
+
+
+async def newest_sequence(session: AsyncSession, story_id: uuid.UUID) -> int:
+    """Where the story stands: the newest visible turn, or 0 before any."""
+    found = await session.scalar(
+        select(func.max(Message.sequence)).where(
+            Message.story_id == story_id, Message.deleted_at.is_(None)
+        )
+    )
+    return found or 0
+
+
+async def pin(session: AsyncSession, story: Story, subject: str, text: str) -> Fact:
+    """Records a statement as true from now on, pinned."""
+    fact = add(story, subject.strip(), text.strip(), await newest_sequence(session, story.id))
+    session.add(fact)
+    await session.commit()
+    return fact
+
+
+async def retire_by_hand(session: AsyncSession, fact: Fact) -> Fact:
+    """Retires a fact at the story's current turn, whoever stated it. Already retired: unchanged."""
+    if fact.valid_to_sequence is None:
+        fact.valid_to_sequence = max(
+            fact.valid_from_sequence, await newest_sequence(session, fact.story_id)
+        )
+        await session.commit()
+    return fact
+
+
+router = APIRouter(prefix="/stories/{story_id}/facts", tags=["facts"])
+Session = Annotated[AsyncSession, Depends(get_session)]
+Words = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
+Subject = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class NewFact(BaseModel):
+    subject: Subject
+    text: Words
+
+
+class FactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    subject: str
+    text: str
+    valid_from_sequence: int
+    valid_to_sequence: int | None
+    """None while the fact is live."""
+    model: str | None
+    """None when a person stated it."""
+    pinned: bool
+    created_at: datetime
+
+
+async def _required(session: AsyncSession, story_id: uuid.UUID, fact_id: uuid.UUID) -> Fact:
+    fact = await session.scalar(select(Fact).where(Fact.id == fact_id, Fact.story_id == story_id))
+    if fact is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "This story has no fact with that id.")
+    return fact
+
+
+@router.get("")
+async def list_facts(story_id: uuid.UUID, session: Session, all: bool = False) -> list[FactOut]:
+    """What the story believes right now; with `all`, what it once believed too."""
+    await visible_story(session, story_id)
+    query = select(Fact).where(Fact.story_id == story_id)
+    if not all:
+        query = query.where(Fact.valid_to_sequence.is_(None))
+    rows = await session.scalars(query.order_by(Fact.valid_from_sequence, Fact.created_at))
+    return [FactOut.model_validate(row) for row in rows]
+
+
+@router.post("", status_code=status.HTTP_201_CREATED)
+async def add_fact(story_id: uuid.UUID, new: NewFact, session: Session) -> FactOut:
+    """States a fact. It is in every prompt from the next turn on, and the extractor cannot
+    retire it; a person can."""
+    story = await visible_story(session, story_id)
+    return FactOut.model_validate(await pin(session, story, new.subject, new.text))
+
+
+@router.delete("/{fact_id}")
+async def retire_fact(story_id: uuid.UUID, fact_id: uuid.UUID, session: Session) -> FactOut:
+    """Retires a fact at the current turn. The row stays, with the stretch it held for."""
+    await visible_story(session, story_id)
+    fact = await _required(session, story_id, fact_id)
+    return FactOut.model_validate(await retire_by_hand(session, fact))
