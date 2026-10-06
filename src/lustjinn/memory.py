@@ -315,6 +315,7 @@ async def compose(
     trackers: str | None = None,
     instruction: str | None = None,
     reply_tokens: int | None = None,
+    retrieval: bool = True,
 ) -> Composed:
     """The prompt for the next call, after the memory has done what the story needs.
 
@@ -370,7 +371,11 @@ async def compose(
         else:
             failed = True
 
-    recalled = await memories_for(session, openrouter, settings, story, covered, recent)
+    recalled = (
+        await memories_for(session, openrouter, settings, story, covered, recent)
+        if retrieval
+        else []
+    )
     # Read after the extraction, so a fact the stretch just established reaches this turn.
     world = facts.world(await facts.live_facts(session, story.id))
     built = build(

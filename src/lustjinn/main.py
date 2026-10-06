@@ -18,6 +18,7 @@ from lustjinn import (
     export,
     facts,
     library,
+    rebuild,
     search,
     spend,
     stories,
@@ -119,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(export.router, dependencies=[Depends(auth.require_user)])
     app.include_router(spend.router, dependencies=[Depends(auth.require_user)])
     app.include_router(facts.router, dependencies=[Depends(auth.require_user)])
+    app.include_router(rebuild.router, dependencies=[Depends(auth.require_user)])
     return app
 
 
