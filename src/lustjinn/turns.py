@@ -27,6 +27,7 @@ from lustjinn import (
     directions,
     ledger,
     memory,
+    recap,
     regenerate,
     snippets,
     story_model,
@@ -546,6 +547,20 @@ async def ask(
     yield _event("done", AsideDone(aside=AsideOut.model_validate(aside)))
 
 
+async def recap_of(session: AsyncSession, story: Story, argument: str) -> AsyncIterator[str]:
+    """`/recap [turns]`: the latest summary and the last turns. Nothing stored, nothing billed."""
+    try:
+        count = recap.count_from(argument)
+    except ValueError as why:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"{why} — nothing was stored."
+        ) from None
+    summaries = await memory.summaries_of(session, story.id)
+    latest = summaries[-1].text if summaries else None
+    turns = await _visible(session, story.id)
+    yield _event("done", Said(text=recap.format_recap(story.character.name, latest, turns, count)))
+
+
 async def set_tracker(session: AsyncSession, story: Story, argument: str) -> AsyncIterator[str]:
     """`/tracker <name> <value>`: moves a meter by hand and says so. No model call."""
     split = trackers.split_command(argument)
@@ -603,6 +618,8 @@ async def send(
             )
         case commands.Command(spec=commands.Spec(name="ask"), argument=question):
             return _streamed(ask(session, openrouter, settings, story, question))
+        case commands.Command(spec=commands.Spec(name="recap"), argument=argument):
+            return _streamed(await _started(recap_of(session, story, argument)))
         case commands.Command(spec=commands.Spec(name="tracker"), argument=argument):
             # Checked before the stream opens, so a refusal is a 4xx and not a stream of one.
             return _streamed(await _started(set_tracker(session, story, argument)))

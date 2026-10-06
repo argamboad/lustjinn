@@ -49,6 +49,14 @@ COMMANDS: tuple[Spec, ...] = (
         "billed",
     ),
     Spec(
+        "recap",
+        "/recap [turns]",
+        "The story so far: the latest summary, then the last few turns word for word. Nothing "
+        "stored, nothing billed",
+        "free",
+        needs_argument=False,
+    ),
+    Spec(
         "tracker",
         "/tracker <name> <value>",
         "Set a meter by hand. The value is the last word, so a name of several words works",
