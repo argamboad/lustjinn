@@ -186,3 +186,38 @@ def test_the_split_is_on_the_first_blank_line() -> None:
     assert directions.split("have Mags leave") == ("have Mags leave", "")
     assert directions.split('slow down\n\n"Hello."\n\nMore.') == ("slow down", '"Hello."\n\nMore.')
     assert directions.split("  one line\nand two  \n\n  said  ") == ("one line\nand two", "said")
+
+
+# --- /focus ---------------------------------------------------------------------------------------
+
+
+async def test_focus_hands_the_turn_to_a_named_character_and_stores_no_command(
+    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
+) -> None:
+    story = await a_played_story(session)
+    model.says("Mags looks up from the cards for the first time all night.")
+
+    streamed = await send(client, story.id, "/focus Mags")
+
+    assert streamed.done["sent"] is None
+    assert streamed.done["reply"]["text"].startswith("Mags looks up")
+    sent = instruction_sent(model)
+    assert sent["role"] == "user"
+    assert "Give this turn to Mags." in sent["content"]
+    assert "Let them carry it" in sent["content"]
+    assert "never write the user's words, actions or thoughts" in sent["content"]
+    stored = await messages(session, story, hidden=True)
+    assert [m.role for m in stored] == [Role.ASSISTANT, Role.ASSISTANT]
+    assert not any("focus" in m.text.lower() for m in stored)
+
+
+async def test_a_bare_focus_is_refused(
+    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
+) -> None:
+    story = await a_played_story(session)
+
+    streamed = await send(client, story.id, "/focus")
+
+    assert streamed.status == 422
+    assert "/focus <who>" in streamed.last[1]["detail"]
+    assert model.calls == []

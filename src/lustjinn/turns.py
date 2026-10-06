@@ -537,6 +537,11 @@ async def send(
                 )
             # The message is stored; the direction steers the reply and is stored nowhere.
             return _streamed(turn(session, openrouter, settings, story, message, framed))
+        case commands.Command(spec=commands.Spec(name="focus"), argument=who):
+            framed = directions.focus(who)
+            return _streamed(
+                reply(session, openrouter, settings, story, sent=None, instruction=framed)
+            )
         case commands.Command(spec=commands.Spec(name="ask"), argument=question):
             return _streamed(ask(session, openrouter, settings, story, question))
         case commands.Command(spec=commands.Spec(name="tracker"), argument=argument):

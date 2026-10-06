@@ -37,6 +37,12 @@ COMMANDS: tuple[Spec, ...] = (
         "billed",
     ),
     Spec(
+        "focus",
+        "/focus <who>",
+        "Hand the next reply to a named character. Nothing of the command is stored",
+        "billed",
+    ),
+    Spec(
         "ask",
         "/ask <question>",
         "Ask about the story out of character. The answer is shown, never stored in the story",

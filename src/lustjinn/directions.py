@@ -32,6 +32,16 @@ def direction(text: str) -> str:
     return DIRECTION_FRAME + text.strip()
 
 
+def focus(who: str) -> str:
+    """A hand-off to a named character: the next turn is theirs to carry."""
+    return (
+        "A direction for this reply, from the reader, out of character. Give this turn to "
+        f"{who.strip()}. Let them carry it — what they do, say and notice — and keep everyone "
+        "else to what they need for that. Still never write the user's words, actions or "
+        "thoughts."
+    )
+
+
 def split(argument: str) -> tuple[str, str]:
     """`/do`'s argument: the direction, and the message under it if there is one. The first
     blank line divides them, so a direction may run to several lines and a message may too."""
