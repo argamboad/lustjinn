@@ -3,6 +3,7 @@
 Pure tests — no database, no network — on the dummy character, which is the size of a real one.
 """
 
+from lustjinn import tokens
 from lustjinn.context import (
     MEMORIES_FRAME,
     PERSONA_FRAME,
@@ -177,3 +178,151 @@ def test_summaries_follow_one_another_with_no_heading(dummy: Dummy) -> None:
     built = build(Layers(character=heron(dummy), summaries=["First stretch.", "Second."]))
 
     assert built.messages[1].content == "First stretch.\n\nSecond."
+
+
+# --- the budget -------------------------------------------------------------------------------
+
+FILLER = "The tide bell rang twice and nobody in the common room looked up from their cards. "
+
+
+def long_story(n: int) -> list[Message]:
+    """n turns of about 20 tokens each, numbered so a test can see which ones survived."""
+    return turns(*(f"Turn {i + 1}. {FILLER}" for i in range(n)))
+
+
+def memories(n: int) -> list[Recalled]:
+    return [Recalled(i + 1, Role.ASSISTANT, f"Memory {i + 1}. {FILLER * 2}") for i in range(n)]
+
+
+def test_without_a_budget_everything_is_sent(dummy: Dummy) -> None:
+    built = build(Layers(character=heron(dummy), history=long_story(300)))
+
+    assert len(built.messages) == 301
+    assert built.budget is None
+    assert built.spent["history"].dropped == 0
+
+
+def test_the_transcript_is_what_gives_when_the_budget_binds(dummy: Dummy) -> None:
+    fixed = tokens.for_message(dummy.card) + tokens.for_message(PERSONA_FRAME + dummy.persona)
+    budget = fixed + 1000
+
+    built = build(
+        Layers(character=heron(dummy), persona=rowan(dummy), history=long_story(200)),
+        budget=budget,
+    )
+
+    assert built.messages[0].content == dummy.card  # the fixed layers are all there
+    assert built.messages[1].content.endswith(dummy.persona)
+    assert 0 < built.spent["history"].dropped < 200
+    assert built.estimated_tokens <= budget
+
+
+def test_the_turns_kept_are_the_ones_nearest_the_reply(dummy: Dummy) -> None:
+    built = build(
+        Layers(character=heron(dummy), history=long_story(100)),
+        budget=tokens.for_message(dummy.card) + 500,
+    )
+
+    kept = [m.content for m in built.messages[1:]]
+    assert kept[-1].startswith("Turn 100.")
+    numbers = [int(line.split(".")[0].split()[1]) for line in kept]
+    assert numbers == list(range(numbers[0], 101))  # contiguous, ending on the newest
+
+
+def test_a_budget_too_small_for_even_the_fixed_layers_still_sends_the_newest_turn(
+    dummy: Dummy,
+) -> None:
+    """Over budget rather than a reply to nothing."""
+    built = build(Layers(character=heron(dummy), history=long_story(10)), budget=1000)
+
+    assert [m.content for m in built.messages] == [dummy.card, "Turn 10. " + FILLER]
+    assert built.spent["history"].dropped == 9
+    assert built.estimated_tokens > 1000
+
+
+def test_the_instruction_is_counted_before_the_history_is_fitted(dummy: Dummy) -> None:
+    """An instruction is never squeezed out by old turns: it is fixed, and the history fits
+    around it."""
+    budget = tokens.for_message(dummy.card) + 300
+    note = "Keep this one short. " * 10
+    with_note = build(
+        Layers(character=heron(dummy), history=long_story(50), instruction=note), budget=budget
+    )
+    without = build(Layers(character=heron(dummy), history=long_story(50)), budget=budget)
+
+    assert with_note.messages[-1].content == note
+    assert with_note.spent["history"].dropped > without.spent["history"].dropped
+
+
+def test_recalled_turns_cannot_take_more_than_their_share_of_the_budget(dummy: Dummy) -> None:
+    built = build(Layers(character=heron(dummy), memories=memories(40)), budget=10_000)
+
+    assert built.spent["memories"].tokens <= 10_000 * 10 // 100
+    assert 0 < built.spent["memories"].dropped < 40
+
+
+def test_the_recall_share_is_a_setting(dummy: Dummy) -> None:
+    layers = Layers(character=heron(dummy), memories=memories(40))
+
+    tight = build(layers, budget=10_000, recall_percent=5)
+    loose = build(layers, budget=10_000, recall_percent=50)
+
+    assert tight.spent["memories"].dropped > loose.spent["memories"].dropped
+    assert loose.spent["memories"].tokens <= 5000
+
+
+def test_recalled_turns_are_kept_by_relevance_and_read_in_story_order(dummy: Dummy) -> None:
+    """The list arrives most relevant first; the cap keeps from the top; the model then reads
+    the survivors as a transcript, oldest first."""
+    long = FILLER * 6
+    recalled = [
+        Recalled(30, Role.ASSISTANT, "Thirty, most relevant. " + long),
+        Recalled(10, Role.USER, "Ten, next. " + long),
+        Recalled(20, Role.ASSISTANT, "Twenty, barely relevant. " + long),
+    ]
+    two_fit = tokens.for_message(MEMORIES_FRAME) + 2 * tokens.for_message(long) + 60
+
+    built = build(
+        Layers(character=heron(dummy), persona=rowan(dummy), memories=recalled),
+        budget=two_fit * 10,  # the cap is 10%: room for two of the three
+        recall_percent=10,
+    )
+
+    lines = built.messages[-1].content.splitlines()[1:]
+    assert [line.split("]")[0] for line in lines] == ["[10", "[30"]
+    assert built.spent["memories"].dropped == 1
+
+
+def test_a_recalled_turn_that_does_not_fit_is_skipped_rather_than_ending_the_search(
+    dummy: Dummy,
+) -> None:
+    recalled = [
+        Recalled(1, Role.ASSISTANT, "Short one. "),
+        Recalled(2, Role.ASSISTANT, "A very long memory. " + FILLER * 40),
+        Recalled(3, Role.ASSISTANT, "Another short one. "),
+    ]
+
+    built = build(Layers(character=heron(dummy), memories=recalled), budget=1500, recall_percent=10)
+
+    assert "Short one." in built.messages[-1].content
+    assert "Another short one." in built.messages[-1].content
+    assert "very long" not in built.messages[-1].content
+
+
+def test_the_accounting_names_every_layer_that_contributed(dummy: Dummy) -> None:
+    built = build(
+        Layers(
+            character=heron(dummy),
+            persona=rowan(dummy),
+            summaries=["Earlier."],
+            history=turns("One.", "Two."),
+            instruction="Go on.",
+        ),
+        budget=32_000,
+    )
+
+    assert list(built.spent) == ["character", "persona", "summaries", "history", "instruction"]
+    assert built.spent["character"].tokens == tokens.for_message(dummy.card)
+    assert built.spent["history"].tokens == tokens.for_message("One.") + tokens.for_message("Two.")
+    assert built.estimated_tokens == sum(s.tokens for s in built.spent.values())
+    assert built.budget == 32_000

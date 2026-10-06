@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     model_timeout_seconds: int = Field(default=180, ge=1, le=3600)
     """How long to wait for the model: to connect, and between one chunk and the next."""
 
+    context_budget: int = Field(default=32_000, ge=1000, le=900_000)
+    """The most tokens a prompt may hold, counted with the model's own vocabulary — far below
+    the model's window on purpose: attention thins out, and every token is paid for on every
+    turn. When it binds, the oldest history gives way; the newest turn is always kept."""
+
+    recall_percent: int = Field(default=10, ge=0, le=50)
+    """The share of the budget recalled memories may take, whatever their count: four long
+    recalled turns once filled a 60,000-token prompt."""
+
     prefer_providers: list[str] = []
     """OpenRouter hosts to try first, by slug, as a JSON list. Others follow unless fallbacks
     are off."""

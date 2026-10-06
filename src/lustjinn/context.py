@@ -12,6 +12,7 @@ is tested with a real-size card in a few milliseconds.
 from collections.abc import Sequence
 from dataclasses import dataclass
 
+from lustjinn import tokens
 from lustjinn.models import Character, Message, Persona, Role
 from lustjinn.openrouter import ChatMessage
 
@@ -103,34 +104,128 @@ class Layers:
 
 
 @dataclass(frozen=True)
+class Spent:
+    """What one layer cost, and what of it was left out to fit."""
+
+    tokens: int
+    dropped: int = 0
+
+
+@dataclass(frozen=True)
 class Built:
-    """The messages for one call."""
+    """The messages for one call, and the accounting behind them."""
 
     messages: list[ChatMessage]
+    spent: dict[str, Spent]
+    """Per layer, in prompt order, only the layers that contributed something."""
+    budget: int | None
+    """What the history had to fit under; None when nothing was trimmed by design."""
+
+    @property
+    def estimated_tokens(self) -> int:
+        return sum(layer.tokens for layer in self.spent.values())
 
 
-def build(layers: Layers) -> Built:
+def _fit_memories(
+    recalled: Sequence[Recalled], character: Character, persona: Persona | None, cap: int | None
+) -> tuple[str | None, int]:
+    """The memories layer under its cap: most relevant first, each kept if it still fits, then
+    put back in story order so the model reads them as a transcript. Returns the layer and how
+    many were left out."""
+    kept: list[Recalled] = []
+    for turn in recalled:
+        attempt = memories_layer([*kept, turn], character, persona)
+        if cap is not None and attempt is not None and tokens.for_message(attempt) > cap:
+            continue  # this one does not fit; a shorter one further down the list still may
+        kept.append(turn)
+    kept.sort(key=lambda turn: turn.sequence)
+    return memories_layer(kept, character, persona), len(recalled) - len(kept)
+
+
+def _fit_history(history: Sequence[Message], room: int | None) -> tuple[list[Message], int]:
+    """The newest turns that fit in `room`, newest first, stopping at the first that does not.
+
+    The newest message is always kept, whatever it costs: a prompt that leaves out the words
+    the reader just typed is a reply to nothing. A real story lost one that way, once.
+    """
+    if not history:
+        return [], 0
+    kept = [history[-1]]
+    used = tokens.for_message(history[-1].text)
+    for turn in reversed(history[:-1]):
+        cost = tokens.for_message(turn.text)
+        if room is not None and used + cost > room:
+            break
+        kept.append(turn)
+        used += cost
+    kept.reverse()
+    return kept, len(history) - len(kept)
+
+
+ORDER = (
+    "character",
+    "persona",
+    "directives",
+    "world",
+    "summaries",
+    "history",
+    "memories",
+    "trackers",
+    "instruction",
+)
+
+
+def build(layers: Layers, *, budget: int | None = None, recall_percent: int = 10) -> Built:
     """Assembles the prompt, least volatile first; a layer with nothing in it is left out.
+
+    Every layer but the history is fixed: it goes in whole. The history gets what is left of the
+    budget, newest turns first, and gives way oldest first when the budget binds. Recalled
+    memories are capped at `recall_percent` of the budget, whatever their count: four long
+    recalled turns once filled a 60,000-token prompt.
 
     The instruction goes as `user` when the transcript ends on a reply and as `system` when it
     ends on the reader's own turn — a model given two user turns in a row tends to answer the
     second and forget the first.
     """
-    messages = [ChatMessage("system", layers.character.card)]
-    if layers.persona is not None:
-        messages.append(ChatMessage("system", PERSONA_FRAME + layers.persona.text))
-    if layers.directives:
-        messages.append(ChatMessage("system", layers.directives))
-    if world := world_layer(layers.facts):
-        messages.append(ChatMessage("system", world))
-    if layers.summaries:
-        messages.append(ChatMessage("system", "\n\n".join(layers.summaries)))
-    messages += [ChatMessage(turn.role.value, turn.text) for turn in layers.history]
-    if memories := memories_layer(layers.memories, layers.character, layers.persona):
-        messages.append(ChatMessage("system", memories))
-    if layers.trackers:
-        messages.append(ChatMessage("system", layers.trackers))
+    spent: dict[str, Spent] = {}
+
+    def fixed(name: str, text: str | None, dropped: int = 0) -> ChatMessage | None:
+        if not text:
+            return None
+        spent[name] = Spent(tokens.for_message(text), dropped)
+        return ChatMessage("system", text)
+
+    cap = None if budget is None else budget * recall_percent // 100
+    memories, memories_dropped = _fit_memories(
+        layers.memories, layers.character, layers.persona, cap
+    )
+    before = [
+        fixed("character", layers.character.card),
+        fixed("persona", None if layers.persona is None else PERSONA_FRAME + layers.persona.text),
+        fixed("directives", layers.directives),
+        fixed("world", world_layer(layers.facts)),
+        fixed("summaries", "\n\n".join(layers.summaries) if layers.summaries else None),
+    ]
+    after = [
+        fixed("memories", memories, memories_dropped),
+        fixed("trackers", layers.trackers),
+    ]
+    instruction: ChatMessage | None = None
     if layers.instruction:
         after_a_reply = bool(layers.history) and layers.history[-1].role is Role.ASSISTANT
-        messages.append(ChatMessage("user" if after_a_reply else "system", layers.instruction))
-    return Built(messages)
+        instruction = ChatMessage("user" if after_a_reply else "system", layers.instruction)
+        spent["instruction"] = Spent(tokens.for_message(layers.instruction))
+
+    room = None if budget is None else max(0, budget - sum(s.tokens for s in spent.values()))
+    history, history_dropped = _fit_history(layers.history, room)
+    if history:
+        spent["history"] = Spent(
+            sum(tokens.for_message(turn.text) for turn in history), history_dropped
+        )
+
+    messages = [m for m in before if m is not None]
+    messages += [ChatMessage(turn.role.value, turn.text) for turn in history]
+    messages += [m for m in after if m is not None]
+    if instruction is not None:
+        messages.append(instruction)
+    return Built(messages, {name: spent[name] for name in ORDER if name in spent}, budget)

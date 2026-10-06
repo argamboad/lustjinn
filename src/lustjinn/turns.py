@@ -204,7 +204,9 @@ async def reply(
             character=story.character,
             persona=await _persona(session, story),
             history=await _visible(session, story.id),
-        )
+        ),
+        budget=settings.context_budget,
+        recall_percent=settings.recall_percent,
     )
     model, temperature = _choice(story, settings, settings.temperature)
     written: Reply | None = None
@@ -330,7 +332,9 @@ async def ask(
             persona=await _persona(session, story),
             history=history,
             instruction=context.ask_directive(question),
-        )
+        ),
+        budget=settings.context_budget,
+        recall_percent=settings.recall_percent,
     )
     model, temperature = _choice(story, settings, ASIDE_TEMPERATURE)
     answered: Reply | None = None
