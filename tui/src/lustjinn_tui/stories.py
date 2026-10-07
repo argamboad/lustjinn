@@ -25,6 +25,7 @@ from textual.content import Content
 from textual.widget import Widget
 from textual.widgets import Input, Static
 
+from lustjinn_tui import buttons as phone
 from lustjinn_tui import prose
 from lustjinn_tui.api import ApiError, Story, UnreachableError
 from lustjinn_tui.confirm import ConfirmScreen
@@ -37,7 +38,7 @@ from lustjinn_tui.listing import Rows
 from lustjinn_tui.newstory import NewStoryScreen
 from lustjinn_tui.palette import PaletteCommand
 from lustjinn_tui.status import Kind
-from lustjinn_tui.textfmt import age, count, pad
+from lustjinn_tui.textfmt import age, count, fit, pad
 from lustjinn_tui.theme import HEADING, SELECTION
 from lustjinn_tui.view import View
 
@@ -106,6 +107,14 @@ class StoriesScreen(View):
         Hint("Q", "Quit"),
     )
     FILTER_HINTS: ClassVar[tuple[Hint, ...]] = (Hint("Enter", "Apply"), Hint("Esc", "Clear filter"))
+    # No Back: this is the first screen, and Back from here is Quit, which is not a thing to put
+    # under a thumb. New presses a lower-case n: the Vim dialect reads a capital N as the
+    # previous match.
+    BUTTONS: ClassVar[tuple[phone.Button, ...]] = (
+        phone.Button("Open", "enter"),
+        phone.press("New", "n"),
+        phone.press("Library", "m"),
+    )
     # Nothing takes the focus on arrival: the keys are the screen's until / or F2 opens a field.
     AUTO_FOCUS: ClassVar[str | None] = ""
     RENAME_HINTS: ClassVar[tuple[Hint, ...]] = (Hint("Enter", "Rename"), Hint("Esc", "Cancel"))
@@ -233,6 +242,7 @@ class StoriesScreen(View):
         self.rows.set_items(visible, empty=empty)
         self._show_header()
         self._show_preview()
+        self.refresh_summary()
 
     def _show_header(self) -> None:
         shown = len(self.rows.items)
@@ -242,7 +252,27 @@ class StoriesScreen(View):
             text = count(shown, "story", "stories")
         self.query_one("#header", Static).update(text)
 
+    def buttons(self) -> tuple[phone.Button, ...]:
+        if self._mode == "filter":
+            return (phone.Button("Apply", "enter"), phone.Button("Clear", "escape"))
+        if self._mode == "rename":
+            return (phone.Button("Rename", "enter"), phone.Button("Cancel", "escape"))
+        return self.BUTTONS
+
+    def layout_changed(self, narrow: bool) -> None:
+        """On a phone the list is one column, each story in two rows — its name and age, and
+        the first line of its latest message under it — and the preview goes: it is for
+        recognising a story, which one line does; reading it is what opening it is for."""
+        self.query_one(Preview).display = not narrow
+        self.query_one("#header").display = not narrow and self._mode == "list"
+        pane = self.query_one("#pane")
+        pane.styles.width = "100%" if narrow else "30%"
+        self.rows.rows_per_item = 2 if narrow else 1
+        self.rows.refresh()
+
     def _row(self, story: Story, selected: bool, width: int) -> Content:
+        if self.narrow:
+            return self._phone_row(story, selected, width)
         name_width = max(8, width - 3 - AGE_WIDTH - 1)
         name = pad(story.name, name_width)
         when = pad(age(moved_at(story)), AGE_WIDTH)
@@ -251,6 +281,28 @@ class StoriesScreen(View):
             return Content.from_markup(f"{SELECTION}{line}[/]")
         painted = prose.painted(name, self._query)
         return Content.from_markup(f"  {painted} [$muted]{when}[/]")
+
+    def _phone_row(self, story: Story, selected: bool, width: int) -> Content:
+        """Two rows, each exactly the width: the name and age, then the latest line, dimmed."""
+        marker_role = "$accent" if selected else "$border"
+        marker = "▌" if selected else " "
+        when = age(moved_at(story))
+        name = pad(story.name, max(1, width - 1 - len(when) - 2))
+        latest = next(
+            (
+                line.strip()
+                for line in prose.plain(story.last_message_preview or "").splitlines()
+                if line.strip()
+            ),
+            "Nothing said yet.",
+        )
+        first = (
+            f"[{marker_role}]{marker}[/] {prose.painted(name, self._query)} "
+            f"[$muted]{Content(when).markup}[/]"
+        )
+        shown = Content(fit(latest, max(1, width - 3))).markup
+        second = f"[{marker_role}]{marker}[/]  [$muted]{shown}[/]"
+        return Content.from_markup(f"{first}\n{second}")
 
     @on(Rows.Selected)
     def _selection_moved(self) -> None:

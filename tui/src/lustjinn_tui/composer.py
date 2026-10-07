@@ -129,12 +129,15 @@ class Composer(TextArea):
                 event.stop()
                 event.prevent_default()
                 return
-        if event.key == "enter" and not self.newline_on_enter:
+        # Enter sends and Alt+Enter breaks the line; on a phone the two change places.
+        sends = event.key in NEWLINE_KEYS if self.newline_on_enter else event.key == "enter"
+        breaks = event.key == "enter" if self.newline_on_enter else event.key in NEWLINE_KEYS
+        if sends:
             event.stop()
             event.prevent_default()
             self.post_message(self.Send(self))
             return
-        if event.key in NEWLINE_KEYS or (event.key == "enter" and self.newline_on_enter):
+        if breaks:
             event.stop()
             event.prevent_default()
             self.insert("\n")

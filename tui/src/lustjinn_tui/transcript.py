@@ -41,7 +41,7 @@ from textual.visual import RenderOptions
 
 from lustjinn_tui import prose
 from lustjinn_tui.api import Message
-from lustjinn_tui.theme import CHIPS
+from lustjinn_tui.theme import CHIPS, SPEAKER
 
 READ_STEP: Final = 3
 """Rows one arrow moves through a turn taller than the screen. Three rather than a page: on a
@@ -79,8 +79,17 @@ def _stamp(when: datetime) -> str:
     return when.astimezone().strftime("%a %H:%M")
 
 
-def _speaker_row(turn: int, role: str, label: str, stamp: str, width: int) -> Row:
-    """The speaker as a chip on the surface tone, the time at the far end of the measure."""
+def _speaker_row(
+    turn: int, role: str, label: str, stamp: str, width: int, *, phone: bool = False
+) -> Row:
+    """The speaker as a chip on the surface tone, the time at the far end of the measure. On a
+    phone the name alone, in its colour: a screen of thirty-eight columns reads a turn at a
+    time, and a time at the end of every speaker line is a column of figures nobody reads."""
+    if phone:
+        role_markup = SPEAKER.get(role, SPEAKER["system"])
+        return Row(
+            turn, "speaker", Content.from_markup(f"{role_markup} {Content(label).markup}[/]")
+        )
     chip = f" {label} "
     gap = max(1, width - cell_len(chip) - cell_len(stamp))
     chip_role = CHIPS.get(role, CHIPS["system"])
@@ -109,6 +118,7 @@ def layout(
     query: str = "",
     pending: Pending | None = None,
     rules: bool = True,
+    phone: bool = False,
 ) -> list[Row]:
     """Every turn as the rows drawn: a speaker line, the wrapped body, a blank, and a hairline
     between turns (none on a phone, where the speaker's colour already divides them)."""
@@ -117,14 +127,16 @@ def layout(
     count = len(messages) + (1 if pending is not None else 0)
     for i, message in enumerate(messages):
         label = label_of(message.role, speaker)
-        rows.append(_speaker_row(i, message.role, label, _stamp(message.sent_at), width))
+        rows.append(
+            _speaker_row(i, message.role, label, _stamp(message.sent_at), width, phone=phone)
+        )
         rows.extend(_body_rows(i, message.text, width, query))
         rows.append(Row(i, "none", Content(" ")))
         if i < count - 1 and rules:
             rows.append(Row(i, "none", Content.from_markup(f"  [$border]{'─' * width}[/]")))
     if pending is not None:
         i = len(messages)
-        rows.append(_speaker_row(i, "assistant", speaker, "", width))
+        rows.append(_speaker_row(i, "assistant", speaker, "", width, phone=phone))
         if pending.text:
             rows.extend(_body_rows(i, pending.text, width, ""))
         else:
@@ -168,6 +180,7 @@ class Transcript(ScrollView):
         self.search_query = ""
         self.pending: Pending | None = None
         self.rules = True
+        self.phone = False
         self.selected = 0
         self._rows: list[Row] = []
         self._laid_out_width = 0
@@ -244,6 +257,7 @@ class Transcript(ScrollView):
             query=self.search_query,
             pending=self.pending,
             rules=self.rules,
+            phone=self.phone,
         )
         self._laid_out_width = width
         self.virtual_size = Size(1, len(self._rows))  # never wider than itself: no sideways bar

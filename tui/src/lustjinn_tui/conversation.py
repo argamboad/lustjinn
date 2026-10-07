@@ -30,6 +30,7 @@ from textual.timer import Timer
 from textual.widgets import Input, Static
 from textual.worker import Worker
 
+from lustjinn_tui import buttons as phone
 from lustjinn_tui import commands
 from lustjinn_tui.api import (
     ApiError,
@@ -93,6 +94,21 @@ class ConversationScreen(View):
         Hint("Enter", "Create the branch"),
         Hint("Esc", "Cancel"),
     )
+    PHONE_WRITE_HINTS: ClassVar[tuple[Hint, ...]] = (
+        Hint("Alt+Enter", "Send"),
+        Hint("Enter", "New line"),
+        Hint("Esc", "Close"),
+    )
+    BUTTONS: ClassVar[tuple[phone.Button, ...]] = (
+        phone.BACK,
+        phone.press("Write", "i"),
+        phone.Button("Reroll", "ctrl+g"),
+        phone.Button("Carry on", "greater_than_sign", ">"),
+    )
+    WRITE_BUTTONS: ClassVar[tuple[phone.Button, ...]] = (
+        phone.Button("Send", "alt+enter"),
+        phone.Button("Close", "escape"),
+    )
     AUTO_FOCUS: ClassVar[str | None] = ""
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("up", "step(-1)", "Previous", show=False),
@@ -106,7 +122,7 @@ class ConversationScreen(View):
         Binding("n", "match(1)", "Next match", show=False),
         Binding("N", "match(-1)", "Previous match", show=False),
         Binding("greater_than_sign", "carry_on", "Carry on", show=False),
-        Binding("g,G", "regenerate", "Regenerate", show=False),
+        Binding("g,G,ctrl+g", "regenerate", "Regenerate", show=False),
         Binding("s,S", "settings", "Settings", show=False),
         Binding("b,B", "branch", "Branch", show=False),
         Binding("delete", "delete_from", "Delete from here", show=False),
@@ -144,7 +160,7 @@ class ConversationScreen(View):
 
     def hints(self) -> tuple[Hint, ...]:
         if self._mode == "write":
-            return self.WRITE_HINTS
+            return self.PHONE_WRITE_HINTS if self.narrow else self.WRITE_HINTS
         if self._mode == "search":
             return self.SEARCH_HINTS
         if self._mode == "branch":
@@ -184,6 +200,28 @@ class ConversationScreen(View):
     def action_export(self) -> None:
         if self._mode == "read":
             self.lustjinn.push_screen(ExportScreen(self.story))
+
+    def buttons(self) -> tuple[phone.Button, ...]:
+        if self._mode == "write":
+            return self.WRITE_BUTTONS
+        if self._mode in {"search", "branch"}:
+            return (phone.Button("Enter", "enter"), phone.Button("Cancel", "escape"))
+        return self.BUTTONS
+
+    def layout_changed(self, narrow: bool) -> None:
+        """A phone takes the whole width, drops the rules between turns and the times, and
+        swaps Enter and Send in the composer: a touch keyboard's Enter is where a thumb lands
+        mid-paragraph, and a send is permanent and billed."""
+        self._size_column()
+        transcript = self.transcript
+        transcript.rules = not narrow
+        transcript.phone = narrow
+        transcript.show(self.messages, land=False)
+        self.composer.newline_on_enter = narrow
+        self.query_one(Strip).phone = narrow
+        self._measure_draft()
+        self._show_header()
+        self.refresh_hints()
 
     def summary(self) -> str | None:
         position = self._position()
@@ -226,6 +264,8 @@ class ConversationScreen(View):
         share = max(30, min(100, self.lustjinn.config.transcript_width_percent))
         width = self.lustjinn.size.width
         wanted = width * share // 100
+        if self.narrow:
+            wanted = width  # the one screen with no columns to spare pays for no typography
         self.query_one("#column").styles.width = max(min(FLOOR, width), min(wanted, width))
 
     @property
@@ -283,8 +323,18 @@ class ConversationScreen(View):
         return "—" if not transcript.turns else f"{transcript.selected + 1}/{transcript.turns}"
 
     def _header_lines(self) -> list[str]:
-        """One fact per line; a line with nothing to say is dropped rather than left blank."""
+        """One fact per line; a line with nothing to say is dropped rather than left blank. On
+        a phone only what must not wait: a turn in flight, an active filter — the position and
+        the cost are the masthead's one row there."""
         lines: list[str] = []
+        if self.narrow:
+            if self._pending_label is not None:
+                elapsed = time.monotonic() - self._pending_since
+                clock = f" — {elapsed:.0f}s" if elapsed >= 1 else ""
+                lines.append(f"[$warning]{Content(self._pending_label).markup}{clock}…[/]")
+            if self._query:
+                lines.append(f'[$muted]filter "{Content(self._query).markup}"[/]')
+            return lines
         if self._pending_label is not None:
             elapsed = time.monotonic() - self._pending_since
             clock = f" — {elapsed:.0f}s" if elapsed >= 1 else ""
@@ -314,6 +364,7 @@ class ConversationScreen(View):
         self.query_one("#header", Static).update(
             Content.from_markup("\n".join(self._header_lines()))
         )
+        self.refresh_summary()
 
     @on(Transcript.Moved)
     def _moved(self) -> None:
@@ -373,7 +424,11 @@ class ConversationScreen(View):
         self._measure_draft()
         self.composer.focus()
         self.refresh_hints()
-        self.status("Type your message. Enter sends it.")
+        self.status(
+            "Enter is a new line; Send sends it."
+            if self.narrow
+            else "Type your message. Enter sends it."
+        )
 
     def _close_composer(self) -> None:
         self._mode = "read"
@@ -390,7 +445,7 @@ class ConversationScreen(View):
         self._measure_draft()
 
     def _measure_draft(self) -> None:
-        self.query_one(Caption).measure(self.composer.text)
+        self.query_one(Caption).measure(self.composer.text, phone=self.narrow)
 
     @on(Composer.Offered)
     def _offered(self, event: Composer.Offered) -> None:

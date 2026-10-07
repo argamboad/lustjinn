@@ -9,6 +9,7 @@ lands on the screen that asked, where the reader is by then.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Sequence
+from functools import partial
 from typing import ClassVar
 
 from textual import events
@@ -64,7 +65,7 @@ class ConfirmScreen(View):
             classes="keys",
         )
 
-    async def on_key(self, event: events.Key) -> None:
+    def on_key(self, event: events.Key) -> None:
         if self._answered:
             return
         event.stop()
@@ -74,6 +75,6 @@ class ConfirmScreen(View):
         below = app.screen_stack[-2]
         app.pop_screen()
         if event.key == "enter":
-            await app.call(self._label, self._confirm())
+            app.run_worker(partial(app.call, self._label, self._confirm()), exclusive=False)
         elif isinstance(below, View):
             below.status("Cancelled.", Kind.INFO)

@@ -35,7 +35,7 @@ async def test_the_legend_shows_the_screens_keys_in_order(app: LustjinnApp) -> N
 
 
 async def test_a_narrow_legend_ends_with_the_pointer(app: LustjinnApp) -> None:
-    async with app.run_test(size=(50, 30)) as pilot:
+    async with app.run_test(size=(70, 30)) as pilot:
         await pilot.pause(0.1)
         text = view(app).legend.text
         assert text.startswith(" Enter Open the story")

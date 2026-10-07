@@ -175,6 +175,14 @@ class LibraryScreen(View):
     def summary(self) -> str | None:
         return count(len(self.rows.items), KINDS[self.shelf])
 
+    def layout_changed(self, narrow: bool) -> None:
+        """On a phone the names sit above the text instead of beside it."""
+        split = self.query_one("#split")
+        split.styles.layout = "vertical" if narrow else "horizontal"
+        pane = self.query_one("#pane")
+        pane.styles.width = "100%" if narrow else "30%"
+        pane.styles.height = 8 if narrow else "1fr"
+
     def commands(self) -> list[PaletteCommand]:
         return [
             PaletteCommand("Edit the text", "in your editor", self.action_edit),
@@ -232,6 +240,7 @@ class LibraryScreen(View):
             if index >= 0:
                 self.rows.select(index)
         self._show_tabs()
+        self.refresh_summary()
         await self._show_text()
         if announce:
             self.status(f"{count(len(listed), self.kind)} on the shelf.", Kind.SUCCESS)

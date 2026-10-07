@@ -130,6 +130,22 @@ SECTIONS: Final[tuple[Section, ...]] = (
         ),
     ),
     Section(
+        'The Vim dialect (keyboard = "vim"), only while navigating',
+        (
+            Row("h j k l", "Left / down / up / right"),
+            Row("G", "The end; regenerate is then Ctrl+G"),
+            Row("n  /  N", "Next / previous match (Standard: both next)"),
+            Row("u", "Undo, where there is one"),
+        ),
+    ),
+    Section(
+        "On a phone (under sixty columns)",
+        (
+            Row("Enter", "A new line in the composer; Alt+Enter or the Send button sends"),
+            Row("‹  ⋯", "With the mouse on: back, and everything else the screen does"),
+        ),
+    ),
+    Section(
         "Search and export",
         (
             Row("Ctrl+F", "Search every story; Tab changes the scope"),

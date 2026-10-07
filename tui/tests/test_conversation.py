@@ -236,9 +236,9 @@ async def test_search_finds_counts_and_steps_round_the_matches(
         await pilot.press("n")
         await pilot.pause()
         assert screen.transcript.selected == 1
-        await pilot.press("N")
+        await pilot.press("N")  # in the Standard dialect both n and N find the next match
         await pilot.pause()
-        assert screen.transcript.selected == 0
+        assert screen.transcript.selected == 3
         await pilot.press("escape")
         await pilot.pause()
         assert screen.status_line.text == "Filter cleared."

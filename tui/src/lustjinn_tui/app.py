@@ -25,6 +25,7 @@ from textual.widgets import Input, TextArea
 from lustjinn_tui import config as configuration
 from lustjinn_tui.api import Api, ApiError, SignedOutError, UnreachableError
 from lustjinn_tui.config import Config, TokenStore
+from lustjinn_tui.dialect import Dialect, dialect_of
 from lustjinn_tui.editor import Editor, edit_in_editor
 from lustjinn_tui.help import HelpScreen
 from lustjinn_tui.library import LibraryScreen
@@ -65,6 +66,7 @@ class LustjinnApp(App[None]):
         self.wake_waits = wake_waits
         self.editor: Editor = edit_in_editor  # the tests hand in one that needs no terminal
         self.last_key = ""
+        self.dialect: Dialect = dialect_of(config.keyboard)
         self.register_theme(DARK)
         self.theme = NAME
 
