@@ -12,18 +12,24 @@ sign in with a note saying why; one that cannot reach the server sends them back
 from __future__ import annotations
 
 import argparse
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import ClassVar
 
+from textual import events
 from textual.app import App
 from textual.binding import Binding, BindingType
+from textual.command import Provider
 from textual.screen import Screen
+from textual.widgets import Input, TextArea
 
 from lustjinn_tui import config as configuration
 from lustjinn_tui.api import Api, ApiError, SignedOutError, UnreachableError
 from lustjinn_tui.config import Config, TokenStore
 from lustjinn_tui.editor import Editor, edit_in_editor
 from lustjinn_tui.help import HelpScreen
+from lustjinn_tui.library import LibraryScreen
+from lustjinn_tui.palette import LustjinnCommands
+from lustjinn_tui.search import SearchScreen
 from lustjinn_tui.signin import SignInScreen
 from lustjinn_tui.status import Kind
 from lustjinn_tui.stories import StoriesScreen
@@ -36,9 +42,12 @@ class LustjinnApp(App[None]):
     TITLE = "lustjinn"
     COMMAND_PALETTE_BINDING: ClassVar[str] = "ctrl+p"
 
+    COMMANDS: ClassVar[set[type[Provider] | Callable[[], type[Provider]]]] = {LustjinnCommands}
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
         Binding("ctrl+q", "quit", "Quit", show=False, priority=True),
+        Binding("ctrl+p,colon", "command_palette", "Commands", show=False, priority=True),
+        Binding("ctrl+f", "search_all", "Search every story", show=False, priority=True),
     ]
 
     def __init__(
@@ -55,11 +64,15 @@ class LustjinnApp(App[None]):
         self.model_name = ""
         self.wake_waits = wake_waits
         self.editor: Editor = edit_in_editor  # the tests hand in one that needs no terminal
+        self.last_key = ""
         self.register_theme(DARK)
         self.theme = NAME
 
     def get_default_screen(self) -> Screen[None]:
         return StoriesScreen()
+
+    def on_key(self, event: events.Key) -> None:
+        self.last_key = event.key
 
     def on_mount(self) -> None:
         self.push_screen(WakingScreen())
@@ -137,6 +150,27 @@ class LustjinnApp(App[None]):
         if any(isinstance(s, HelpScreen) for s in self.screen_stack):
             return
         self.push_screen(HelpScreen())
+
+    def action_search_all(self) -> None:
+        """``Ctrl+F`` anywhere past the gate: search across every story, once."""
+        if not self.gate_open or any(isinstance(s, SearchScreen) for s in self.screen_stack):
+            return
+        self.push_screen(SearchScreen())
+
+    def action_library(self) -> None:
+        if not self.gate_open or any(isinstance(s, LibraryScreen) for s in self.screen_stack):
+            return
+        self.push_screen(LibraryScreen())
+
+    def action_command_palette(self) -> None:
+        """``Ctrl+P`` or ``:``, but not while a text field would rather have the colon."""
+        focused = self.focused
+        if isinstance(focused, Input | TextArea) and self.last_key == "colon":
+            focused.insert_text_at_cursor(":") if isinstance(focused, Input) else focused.insert(
+                ":"
+            )
+            return
+        super().action_command_palette()
 
 
 def main() -> None:

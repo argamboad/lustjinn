@@ -128,6 +128,12 @@ class Rows[T](Widget):
         self._items: Sequence[T] = ()
         self._row = row
         self._empty = empty
+        self.rows_per_item = 1  # a search hit takes two: its heading and its snippet
+
+    @property
+    def _fits(self) -> int:
+        """How many items the widget's height holds."""
+        return max(1, self.size.height // self.rows_per_item)
 
     # -- the items ----------------------------------------------------------------------------
 
@@ -155,7 +161,7 @@ class Rows[T](Widget):
         self._moved(was)
 
     def page(self, direction: int) -> None:
-        self.move(direction * max(1, self.size.height - 1))
+        self.move(direction * max(1, self._fits - 1))
 
     def first(self) -> None:
         was = self.state.selected
@@ -187,7 +193,7 @@ class Rows[T](Widget):
         if not self._items:
             return Content.from_markup(f"[$muted]{Content(self._empty).markup}[/]")
         width = max(1, self.size.width)
-        start, length = self.state.viewport(max(1, self.size.height))
+        start, length = self.state.viewport(self._fits)
         lines = [
             self._row(self._items[i], i == self.state.selected, width)
             for i in range(start, min(len(self._items), start + length))
@@ -198,7 +204,7 @@ class Rows[T](Widget):
         self.refresh()
 
     def on_click(self, event: events.Click) -> None:
-        index = self.state.index_at_row(event.y, max(1, self.size.height))
+        index = self.state.index_at_row(event.y // self.rows_per_item, self._fits)
         if index < 0:
             return
         if index == self.state.selected:

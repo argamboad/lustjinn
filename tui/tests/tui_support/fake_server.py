@@ -403,6 +403,8 @@ class FakeServer:
             return self._dials(found, parts, request)
         if len(parts) == 3 and parts[2] == "model":
             return self._model(found, request)
+        if len(parts) == 3 and parts[2] == "export":
+            return self._export(found, request)
         if len(parts) == 3 and parts[2] == "spend":
             cost, discarded = self.spend.get(found["id"], ("0", "0"))
             calls = sum(1 for m in found["messages"] if m["role"] == "assistant" and m["model"])
@@ -673,6 +675,31 @@ class FakeServer:
         return httpx2.Response(
             200,
             json={"model": own, "context": 128000, "default": DEFAULT_MODEL, "message": message},
+        )
+
+    def _export(self, found: dict[str, Any], request: httpx2.Request) -> httpx2.Response:
+        fmt = request.url.params.get("format", "markdown")
+        ext = {"markdown": "md", "json": "json", "text": "txt"}.get(fmt)
+        if ext is None:
+            return httpx2.Response(422, json={"detail": "format: not a known format"})
+        turns: list[dict[str, Any]] = found["messages"]
+        if fmt == "json":
+            document = json.dumps({"title": found["name"], "messages": turns}, indent=2)
+        elif fmt == "text":
+            document = "\n\n".join(f"[{m['sequence']:03d}] {m['role']}\n{m['text']}" for m in turns)
+        else:
+            document = f"# {found['name']}\n\n" + "\n\n".join(
+                f"## {m['sequence']}. {m['role']}\n\n{m['text']}" for m in turns
+            )
+        slug = found["name"].lower().replace(" ", "-")
+        filename = f"transcript-{slug}-20261007-120000.{ext}"
+        return httpx2.Response(
+            200,
+            headers={
+                "content-type": "text/plain; charset=utf-8",
+                "content-disposition": f'attachment; filename="{filename}"',
+            },
+            content=document.encode(),
         )
 
     def _search(self, request: httpx2.Request) -> httpx2.Response:

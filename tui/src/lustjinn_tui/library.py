@@ -33,6 +33,7 @@ from lustjinn_tui.editor import editor_name
 from lustjinn_tui.hairline import Hairline
 from lustjinn_tui.legend import Hint
 from lustjinn_tui.listing import Rows
+from lustjinn_tui.palette import PaletteCommand
 from lustjinn_tui.status import Kind
 from lustjinn_tui.textfmt import count, pad
 from lustjinn_tui.theme import HEADING, SELECTION
@@ -173,6 +174,18 @@ class LibraryScreen(View):
 
     def summary(self) -> str | None:
         return count(len(self.rows.items), KINDS[self.shelf])
+
+    def commands(self) -> list[PaletteCommand]:
+        return [
+            PaletteCommand("Edit the text", "in your editor", self.action_edit),
+            PaletteCommand("Edit the opening", "a character's first message", self.action_opening),
+            PaletteCommand("New entry", "on this shelf, from a skeleton", self.action_new),
+            PaletteCommand("Rename the entry", "the one the cursor is on", self.action_rename),
+            PaletteCommand(
+                "Default persona", "make the selected persona the default", self.action_default
+            ),
+            PaletteCommand("Remove the entry", "asks first", self.action_remove),
+        ]
 
     def body(self) -> ComposeResult:
         yield Static("", id="tabs")

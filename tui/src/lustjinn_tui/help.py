@@ -94,7 +94,7 @@ SECTIONS: Final[tuple[Section, ...]] = (
             Row("Del", "Delete from the selected message onwards"),
             Row("/", "Search inside this story"),
             Row("n  /  N", "Next / previous match"),
-            Row("C  /  X", "Copy the message / export the story"),
+            Row("C  /  E", "Copy the message / export the story"),
             Row("R", "Re-read the story"),
             Row("Esc", "Stop waiting for a reply; back"),
         ),
@@ -127,6 +127,14 @@ SECTIONS: Final[tuple[Section, ...]] = (
             Row("Del", "Back to the pack's default"),
             Row("Enter", "Apply the staged changes to the story"),
             Row("Esc", "Discard the staged changes; then back"),
+        ),
+    ),
+    Section(
+        "Search and export",
+        (
+            Row("Ctrl+F", "Search every story; Tab changes the scope"),
+            Row("Enter", "Search; again on a result, open its story"),
+            Row("← →", "Export: the format; Enter writes the file, C copies it"),
         ),
     ),
     Section(

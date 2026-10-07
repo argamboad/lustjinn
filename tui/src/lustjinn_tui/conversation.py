@@ -49,9 +49,11 @@ from lustjinn_tui.commands import Command, Commands, Incomplete, Prose, Unknown
 from lustjinn_tui.completion import LIMIT, Completion, Offer, Strip
 from lustjinn_tui.composer import Caption, Composer
 from lustjinn_tui.confirm import ConfirmScreen
+from lustjinn_tui.export import ExportScreen
 from lustjinn_tui.hairline import Hairline
 from lustjinn_tui.legend import Hint
 from lustjinn_tui.masthead import Masthead
+from lustjinn_tui.palette import PaletteCommand
 from lustjinn_tui.panes import AskScreen, TextPaneScreen
 from lustjinn_tui.regenerate import RegenerateScreen
 from lustjinn_tui.settings import ChatSettingsScreen
@@ -77,6 +79,7 @@ class ConversationScreen(View):
         Hint("B", "Branch from here"),
         Hint("Del", "Delete from here"),
         Hint("C", "Copy"),
+        Hint("E", "Export"),
         Hint("R", "Refresh"),
         Hint("Esc", "Back"),
     )
@@ -108,6 +111,7 @@ class ConversationScreen(View):
         Binding("b,B", "branch", "Branch", show=False),
         Binding("delete", "delete_from", "Delete from here", show=False),
         Binding("c,C", "copy", "Copy", show=False),
+        Binding("e,E,x,X", "export", "Export", show=False),
         Binding("r,R,ctrl+r", "refresh", "Refresh", show=False),
     ]
 
@@ -133,7 +137,7 @@ class ConversationScreen(View):
         self._clock: Timer | None = None
         self._turn: Worker[None] | None = None
         self._loaded = False
-        self.commands = Commands()
+        self.slash = Commands()  # the composer's commands, not the palette's
         self._sent_command: str | None = None
 
     # -- the frame ------------------------------------------------------------------------------
@@ -146,6 +150,40 @@ class ConversationScreen(View):
         if self._mode == "branch":
             return self.BRANCH_HINTS
         return self.HINTS
+
+    def commands(self) -> list[PaletteCommand]:
+        return [
+            PaletteCommand("Write a message", "open the composer", self.action_write),
+            PaletteCommand(
+                "Carry on", "a reply with nothing from you; spends", self.action_carry_on
+            ),
+            PaletteCommand(
+                "Regenerate the reply", "the newest one, with a reason", self.action_regenerate
+            ),
+            PaletteCommand("Reply settings", "the model and the dials", self.action_settings),
+            PaletteCommand(
+                "Search this story", "find words in this conversation", self.action_search
+            ),
+            PaletteCommand(
+                "Branch from here", "copy the story to this turn into a new one", self.action_branch
+            ),
+            PaletteCommand(
+                "Copy this message", "the selected turn, to your clipboard", self.action_copy
+            ),
+            PaletteCommand(
+                "Export the transcript", "Markdown, JSON or plain text", self.action_export
+            ),
+            PaletteCommand(
+                "Delete from here",
+                "this turn and every one after it; asks first",
+                self.action_delete_from,
+            ),
+            PaletteCommand("Refresh", "re-read the story", self.action_refresh),
+        ]
+
+    def action_export(self) -> None:
+        if self._mode == "read":
+            self.lustjinn.push_screen(ExportScreen(self.story))
 
     def summary(self) -> str | None:
         position = self._position()
@@ -177,7 +215,7 @@ class ConversationScreen(View):
     async def _read_commands(self) -> None:
         """The server's list wins over the shipped one whenever it can be read."""
         with contextlib.suppress(ApiError, UnreachableError):
-            self.commands = Commands(await self.lustjinn.api.commands())
+            self.slash = Commands(await self.lustjinn.api.commands())
 
     def on_resize(self) -> None:
         self._size_column()
@@ -367,7 +405,7 @@ class ConversationScreen(View):
         typed = commands.command_being_typed(line, column, first_line=first_line)
         if typed is None:
             return None
-        found = self.commands.matching(typed)[:LIMIT]
+        found = self.slash.matching(typed)[:LIMIT]
         if not found:
             return None
         return Offer(
@@ -386,7 +424,7 @@ class ConversationScreen(View):
 
     def dispatch(self, text: str) -> None:
         """Runs whatever the composer turned out to hold: a message, a command, or a refusal."""
-        match self.commands.parse(text):
+        match self.slash.parse(text):
             case Prose():
                 # As typed, a doubled slash included: the API strips it the same way, and the
                 # hash that makes a retry one turn is over what it received.
@@ -475,7 +513,7 @@ class ConversationScreen(View):
             return
         elif name == "help":
             report = commands.Report(
-                "Commands", "typed in the composer", tuple(self.commands.help_lines())
+                "Commands", "typed in the composer", tuple(self.slash.help_lines())
             )
         if report is None:
             return

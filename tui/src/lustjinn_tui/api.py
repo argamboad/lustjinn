@@ -16,6 +16,7 @@ them.
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -227,6 +228,15 @@ class Hit(BaseModel):
 class Results(BaseModel):
     hits: list[Hit]
     searched: int
+
+
+ExportFormat = Literal["markdown", "json", "text"]
+EXTENSIONS: dict[str, str] = {"markdown": "md", "json": "json", "text": "txt"}
+
+
+class Export(BaseModel):
+    filename: str
+    text: str
 
 
 class Spec(BaseModel):
@@ -552,6 +562,25 @@ class Api:
 
     async def commands(self) -> list[Spec]:
         return _specs.validate_python(await self._request("GET", "/commands"))
+
+    async def export(self, story_id: uuid.UUID, fmt: ExportFormat) -> Export:
+        """The transcript as a document, with the file name the server suggests."""
+        try:
+            response = await self._client.request(
+                "GET",
+                f"/stories/{story_id}/export",
+                params={"format": fmt},
+                headers=self._headers(),
+            )
+        except httpx2.TransportError as error:
+            raise UnreachableError(str(error)) from error
+        self._check(response.status_code, response)
+        disposition = response.headers.get("content-disposition", "")
+        found = re.search(r'filename="([^"]+)"', disposition)
+        return Export(
+            filename=found.group(1) if found else f"transcript.{EXTENSIONS[fmt]}",
+            text=response.text,
+        )
 
     # -- the library ---------------------------------------------------------------------------
 

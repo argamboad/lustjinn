@@ -21,13 +21,14 @@ from textual.screen import Screen
 from lustjinn_tui.hairline import Hairline
 from lustjinn_tui.legend import DEFAULT_HINTS, Hint, Legend
 from lustjinn_tui.masthead import Masthead
+from lustjinn_tui.palette import HasCommands, PaletteCommand
 from lustjinn_tui.status import Kind, StatusLine
 
 if TYPE_CHECKING:
     from lustjinn_tui.app import LustjinnApp
 
 
-class View(Screen[None]):
+class View(Screen[None], HasCommands):
     HINTS: ClassVar[tuple[Hint, ...]] = DEFAULT_HINTS
 
     BINDINGS: ClassVar[list[BindingType]] = [
@@ -63,6 +64,10 @@ class View(Screen[None]):
     def summary(self) -> str | None:
         """A few cells beside the title on a narrow screen (``2/2``, ``5 stories``)."""
         return None
+
+    def commands(self) -> list[PaletteCommand]:
+        """What the palette lists for this screen, before the global commands."""
+        return []
 
     def refresh_hints(self) -> None:
         self.query_one(Legend).hints = tuple(self.hints())

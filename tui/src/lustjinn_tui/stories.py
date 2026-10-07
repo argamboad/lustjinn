@@ -35,6 +35,7 @@ from lustjinn_tui.legend import Hint
 from lustjinn_tui.library import LibraryScreen
 from lustjinn_tui.listing import Rows
 from lustjinn_tui.newstory import NewStoryScreen
+from lustjinn_tui.palette import PaletteCommand
 from lustjinn_tui.status import Kind
 from lustjinn_tui.textfmt import age, count, pad
 from lustjinn_tui.theme import HEADING, SELECTION
@@ -154,6 +155,22 @@ class StoriesScreen(View):
         if self._query:
             return f"{shown} of {len(self._all)}"
         return count(shown, "story", "stories")
+
+    def commands(self) -> list[PaletteCommand]:
+        return [
+            PaletteCommand("Open the story", "the one the cursor is on", self.action_open),
+            PaletteCommand(
+                "New story", "pick a character, a persona and a model", self.action_new_story
+            ),
+            PaletteCommand("Rename the story", "the one the cursor is on", self.action_rename),
+            PaletteCommand(
+                "Delete the story", "the one the cursor is on; asks first", self.action_delete
+            ),
+            PaletteCommand(
+                "Filter the list", "show only the stories whose name matches", self.action_filter
+            ),
+            PaletteCommand("Refresh", "re-read the list from the server", self.action_refresh),
+        ]
 
     def body(self) -> ComposeResult:
         with Horizontal(id="split"):
