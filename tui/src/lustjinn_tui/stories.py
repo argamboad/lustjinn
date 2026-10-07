@@ -36,7 +36,7 @@ from lustjinn_tui.listing import Rows
 from lustjinn_tui.newstory import NewStoryScreen
 from lustjinn_tui.status import Kind
 from lustjinn_tui.textfmt import age, count, pad
-from lustjinn_tui.theme import HEADING, HIGHLIGHT, SELECTION
+from lustjinn_tui.theme import HEADING, SELECTION
 from lustjinn_tui.view import View
 
 AGE_WIDTH = 9
@@ -46,26 +46,6 @@ Mode = Literal["list", "filter", "rename"]
 def moved_at(story: Story) -> datetime:
     """When the story last moved: its newest message, or its creation."""
     return story.last_message_at or story.created_at
-
-
-def highlight(text: str, query: str) -> str:
-    """``text`` as markup with every occurrence of ``query`` (case folded) in the highlight role
-    (``Draw.Highlight``)."""
-    if not query:
-        return Content(text).markup
-    parts: list[str] = []
-    folded, needle = text.lower(), query.lower()
-    at = 0
-    while at < len(text):
-        found = folded.find(needle, at)
-        if found < 0:
-            parts.append(Content(text[at:]).markup)
-            break
-        if found > at:
-            parts.append(Content(text[at:found]).markup)
-        parts.append(f"{HIGHLIGHT}{Content(text[found : found + len(query)]).markup}[/]")
-        at = found + len(query)
-    return "".join(parts)
 
 
 class Preview(Widget):
@@ -251,7 +231,8 @@ class StoriesScreen(View):
         if selected:
             line = Content(f"> {name} {when}").markup
             return Content.from_markup(f"{SELECTION}{line}[/]")
-        return Content.from_markup(f"  {highlight(name, self._query)} [$muted]{when}[/]")
+        painted = prose.painted(name, self._query)
+        return Content.from_markup(f"  {painted} [$muted]{when}[/]")
 
     @on(Rows.Selected)
     def _selection_moved(self) -> None:

@@ -20,7 +20,7 @@ from typing import Final, Literal
 
 from textual.content import Content
 
-from lustjinn_tui.theme import ACTION
+from lustjinn_tui.theme import ACTION, HIGHLIGHT
 
 Kind = Literal["narration", "action", "emphasis", "dialogue"]
 
@@ -104,15 +104,36 @@ def plain(text: str) -> str:
     return "".join(run.text for run in runs(text))
 
 
-def styled(found: list[Run]) -> Content:
-    """Runs as styled content: action and emphasis in the action role, the rest as they are."""
+def painted(text: str, query: str) -> str:
+    """The text as markup, every occurrence of ``query`` (case folded) in the highlight role, so
+    an active search shows through whatever styling the run asked for."""
+    if not query:
+        return Content(text).markup
+    parts: list[str] = []
+    folded, needle = text.lower(), query.lower()
+    at = 0
+    while at < len(text):
+        found = folded.find(needle, at)
+        if found < 0:
+            parts.append(Content(text[at:]).markup)
+            break
+        if found > at:
+            parts.append(Content(text[at:found]).markup)
+        parts.append(f"{HIGHLIGHT}{Content(text[found : found + len(query)]).markup}[/]")
+        at = found + len(query)
+    return "".join(parts)
+
+
+def styled(found: list[Run], query: str = "") -> Content:
+    """Runs as styled content: action and emphasis in the action role, the rest as they are,
+    and a search ``query`` highlighted through both."""
     parts: list[str] = []
     for run in found:
-        escaped = Content(run.text).markup
+        marked = painted(run.text, query)
         if run.kind in {"action", "emphasis"}:
-            parts.append(f"{ACTION}{escaped}[/]")
+            parts.append(f"{ACTION}{marked}[/]")
         else:
-            parts.append(escaped)
+            parts.append(marked)
     return Content.from_markup("".join(parts))
 
 

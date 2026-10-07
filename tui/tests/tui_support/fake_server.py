@@ -114,6 +114,9 @@ class FakeServer:
         self.requests: list[httpx2.Request] = []
         self.reply = "She looks up. *A pause.*"
         self.reply_pieces = 3
+        self.model_fails: str | None = None  # the model's failure, as the API's error event
+        self.reroll_bodies: list[dict[str, Any]] = []
+        self.spend: dict[str, tuple[str, str]] = {}  # story id -> (cost, discarded)
 
     # -- scripting ------------------------------------------------------------------------------
 
@@ -218,6 +221,61 @@ class FakeServer:
             return httpx2.Response(204)
         if len(parts) == 3 and parts[2] in {"send", "continue", "reroll"}:
             return self._turn(found, request)
+        if len(parts) == 3 and parts[2] == "spend":
+            cost, discarded = self.spend.get(found["id"], ("0", "0"))
+            calls = sum(1 for m in found["messages"] if m["role"] == "assistant" and m["model"])
+            return httpx2.Response(
+                200,
+                json={
+                    "story_id": found["id"],
+                    "name": found["name"],
+                    "calls": calls,
+                    "cost": cost,
+                    "discarded_calls": 0,
+                    "discarded_cost": discarded,
+                    "unpriced": 0,
+                },
+            )
+        if len(parts) == 3 and parts[2] == "branch" and request.method == "POST":
+            body = json.loads(request.content)
+            index = next(
+                (i for i, m in enumerate(found["messages"]) if m["id"] == body["message_id"]),
+                None,
+            )
+            if index is None:
+                return httpx2.Response(404, json={"detail": "There is no such message."})
+            taken = {s["name"] for s in self.stories}
+            n = 2
+            while f"{found['name']} ({n})" in taken:
+                n += 1
+            name = body.get("name") or f"{found['name']} ({n})"
+            copy = self.add(
+                name,
+                *(m["text"] for m in found["messages"][: index + 1]),
+                character=found["character_name"],
+                character_id=found["character_id"],
+                created_at=datetime(2026, 10, 7, 13, tzinfo=UTC),
+            )
+            return httpx2.Response(201, json=copy)
+        if len(parts) == 4 and parts[2] == "messages" and request.method == "DELETE":
+            index = next((i for i, m in enumerate(found["messages"]) if m["id"] == parts[3]), None)
+            if index is None:
+                return httpx2.Response(404, json={"detail": "There is no such message."})
+            hidden = len(found["messages"]) - index
+            del found["messages"][index:]
+            last = found["messages"][-1] if found["messages"] else None
+            found["last_message_at"] = last["sent_at"] if last else None
+            found["last_message_preview"] = last["text"][:200] if last else None
+            return httpx2.Response(
+                200,
+                json={
+                    "story": found,
+                    "hidden": hidden,
+                    "summaries_removed": 0,
+                    "facts_removed": 0,
+                    "facts_reopened": 0,
+                },
+            )
         return httpx2.Response(404, json={"detail": f"Nothing answers {request.method} {parts}."})
 
     def _create(self, body: dict[str, Any]) -> httpx2.Response:
@@ -283,12 +341,42 @@ class FakeServer:
 
     def _turn(self, found: dict[str, Any], request: httpx2.Request) -> httpx2.Response:
         body: dict[str, Any] = json.loads(request.content) if request.content else {}
+        messages: list[dict[str, Any]] = found["messages"]
+        kind = request.url.path.rsplit("/", 1)[-1]
+        if kind == "reroll":
+            last = messages[-1] if messages else None
+            if last is None or last["role"] != "assistant":
+                return httpx2.Response(
+                    409,
+                    json={
+                        "detail": "There is no reply to write again: a reroll applies to the "
+                        "newest reply. Send a message first."
+                    },
+                )
+            if last["model"] is None and not any(m["role"] == "user" for m in messages):
+                return httpx2.Response(
+                    409,
+                    json={
+                        "detail": "The opening is not rerolled: a person wrote it. Write your "
+                        "first turn; the reply to it can be rerolled."
+                    },
+                )
+            self.reroll_bodies.append(body)
+            messages.pop()  # hidden on the server, kept for the record
+        if kind == "continue" and not any(m["role"] == "assistant" for m in messages):
+            return httpx2.Response(409, json={"detail": "There is no reply to carry on from."})
         sent = None
-        if "text" in body:
-            sent = message(len(found["messages"]) + 1, "user", body["text"])
-            found["messages"].append(sent)
-        reply = message(len(found["messages"]) + 1, "assistant", self.reply)
-        found["messages"].append(reply)
+        if kind == "send":
+            sent = message(len(messages) + 1, "user", body["text"])
+            messages.append(sent)
+        if self.model_fails is not None:
+            return httpx2.Response(
+                200,
+                headers={"content-type": "text/event-stream"},
+                content=self._failure(sent, self.model_fails),
+            )
+        reply = message(len(messages) + 1, "assistant", self.reply)
+        messages.append(reply)
         found["last_message_at"] = reply["sent_at"]
         found["last_message_preview"] = reply["text"][:200]
         return httpx2.Response(
@@ -305,3 +393,6 @@ class FakeServer:
         for at in range(0, len(text), size):
             yield sse("delta", {"text": text[at : at + size]})
         yield sse("done", {"kind": "turn", "sent": sent, "reply": reply, "replayed": False})
+
+    async def _failure(self, sent: dict[str, Any] | None, detail: str) -> AsyncIterator[bytes]:
+        yield sse("error", {"kind": "error", "detail": detail, "sent": sent})

@@ -64,3 +64,16 @@ HEADING: Final = "[bold $primary]"
 SELECTION: Final = "[bold $selection-fg on $selection-bg]"
 HIGHLIGHT: Final = "[$highlight-fg on $highlight-bg]"
 BADGE: Final = "[bold $badge-fg on $badge-bg]"
+
+# A speaker's chip in the transcript: the role's colour on the surface tone, the way a key cap is
+# drawn. Not black-on-colour like the masthead's badge: a screenful of transcript carries a dozen.
+CHIPS: Final[dict[str, str]] = {
+    "user": "[$accent on $surface]",
+    "assistant": "[$success on $surface]",
+    "system": "[$warning on $surface]",
+}
+SPEAKER: Final[dict[str, str]] = {
+    "user": "[$accent]",
+    "assistant": "[$success]",
+    "system": "[$warning]",
+}

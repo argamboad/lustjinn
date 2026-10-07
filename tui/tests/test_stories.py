@@ -7,7 +7,7 @@ from lustjinn_tui.conversation import ConversationScreen
 from lustjinn_tui.listing import Rows
 from lustjinn_tui.masthead import Masthead
 from lustjinn_tui.status import Kind
-from lustjinn_tui.stories import Preview, StoriesScreen, highlight
+from lustjinn_tui.stories import Preview, StoriesScreen
 from tui_support import fake_server as fake
 
 
@@ -104,11 +104,6 @@ async def test_the_filter_narrows_as_you_type_and_esc_clears_it(
         await pilot.press("escape")
         await pilot.pause()
         assert len(names(app)) == 3
-
-
-def test_highlight_marks_every_occurrence_case_folded() -> None:
-    assert highlight("Story of a story", "sto").count("$highlight-fg") == 2
-    assert highlight("plain", "") == "plain"
 
 
 async def test_f2_renames_in_place_and_the_list_is_re_read(

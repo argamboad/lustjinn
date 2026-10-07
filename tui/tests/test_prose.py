@@ -1,6 +1,6 @@
 """The prose rules, the same cases the web app's port passes."""
 
-from lustjinn_tui.prose import Run, content, paragraphs, plain, runs
+from lustjinn_tui.prose import Run, content, painted, paragraphs, plain, runs, styled
 
 
 def test_tells_action_emphasis_and_dialogue_from_narration_and_drops_the_markers() -> None:
@@ -51,3 +51,11 @@ def test_plain_drops_the_markers_and_content_styles_the_action() -> None:
     styled = content("*She looks up.* and [waits]")
     assert styled.plain == "She looks up. and [waits]"  # brackets survive the markup
     assert len(styled.spans) == 1
+
+
+def test_a_search_is_painted_through_the_runs() -> None:
+    assert painted("Story of a story", "sto").count("$highlight-fg") == 2
+    assert painted("plain", "") == "plain"
+    marked = styled(runs("*She looks up.* A week."), "look")
+    assert marked.plain == "She looks up. A week."
+    assert len(marked.spans) == 2  # the action run, and the match inside it

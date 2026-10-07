@@ -117,6 +117,28 @@ class Defaults(BaseModel):
     default_persona_name: str | None = None
 
 
+class Cut(BaseModel):
+    """What deleting from a message left behind."""
+
+    story: StoryWithMessages
+    hidden: int
+    summaries_removed: int = 0
+    facts_removed: int = 0
+    facts_reopened: int = 0
+
+
+class StorySpend(BaseModel):
+    """What one story has cost: the priced calls, and the share rerolled or cut away."""
+
+    story_id: uuid.UUID
+    name: str
+    calls: int
+    cost: Decimal
+    discarded_calls: int = 0
+    discarded_cost: Decimal = Decimal(0)
+    unpriced: int = 0
+
+
 class Choice(BaseModel):
     """A model to pick, with the provider's list prices beside it — to compare by only."""
 
@@ -313,6 +335,26 @@ class Api:
 
     async def delete_story(self, story_id: uuid.UUID) -> None:
         await self._request("DELETE", f"/stories/{story_id}")
+
+    async def branch(
+        self, story_id: uuid.UUID, message_id: uuid.UUID, name: str | None = None
+    ) -> StoryWithMessages:
+        """A copy of the story up to that message, under ``name`` or one the server picks."""
+        return StoryWithMessages.model_validate(
+            await self._request(
+                "POST",
+                f"/stories/{story_id}/branch",
+                json={"message_id": str(message_id), "name": name},
+            )
+        )
+
+    async def delete_from(self, story_id: uuid.UUID, message_id: uuid.UUID) -> Cut:
+        return Cut.model_validate(
+            await self._request("DELETE", f"/stories/{story_id}/messages/{message_id}")
+        )
+
+    async def story_spend(self, story_id: uuid.UUID) -> StorySpend:
+        return StorySpend.model_validate(await self._request("GET", f"/stories/{story_id}/spend"))
 
     # -- the library ---------------------------------------------------------------------------
 
