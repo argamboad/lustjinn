@@ -23,6 +23,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import TextArea
 
+from lustjinn_tui import graphemes, shortcodes
 from lustjinn_tui.completion import Offer, Provider
 
 NEWLINE_KEYS: Final = frozenset({"alt+enter", "shift+enter", "ctrl+enter", "ctrl+j"})
@@ -68,6 +69,31 @@ class Composer(TextArea):
         def control(self) -> Composer:
             return self.composer
 
+    class Substituted(Message):
+        """A fully typed ``:name:`` became its emoji the moment the closing colon landed."""
+
+        def __init__(self, composer: Composer, name: str, emoji: str) -> None:
+            super().__init__()
+            self.composer = composer
+            self.name = name
+            self.emoji = emoji
+
+        @property
+        def control(self) -> Composer:
+            return self.composer
+
+    class SnippetWanted(Message):
+        """A snippet completion was taken: the screen fetches its text and inserts it."""
+
+        def __init__(self, composer: Composer, name: str) -> None:
+            super().__init__()
+            self.composer = composer
+            self.name = name
+
+        @property
+        def control(self) -> Composer:
+            return self.composer
+
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id, soft_wrap=True, show_line_numbers=False, compact=True)
         self.newline_on_enter = False
@@ -99,7 +125,8 @@ class Composer(TextArea):
             self.post_message(self.Offered(self, None))
 
     def accept(self) -> None:
-        """Replaces the typed token with the chosen completion."""
+        """Replaces the typed token with the chosen completion. A snippet is a page with its
+        own line breaks: the token goes now and the screen inserts the text once it has it."""
         if self.offer is None:
             return
         chosen = self.offer.completions[self.choice % len(self.offer.completions)]
@@ -109,6 +136,36 @@ class Composer(TextArea):
         )
         self.move_cursor((row, self.offer.start + len(chosen.insert)))
         self.dismiss_offers()
+        if chosen.snippet is not None:
+            self.post_message(self.SnippetWanted(self, chosen.snippet))
+
+    # -- graphemes ----------------------------------------------------------------------------
+
+    def get_cursor_left_location(self) -> tuple[int, int]:
+        """One whole cluster to the left, so an emoji is stepped over and deleted as the one
+        character it looks like."""
+        row, column = self.cursor_location
+        if column == 0:
+            return super().get_cursor_left_location()
+        return row, graphemes.previous_boundary(self.document.get_line(row), column)
+
+    def get_cursor_right_location(self) -> tuple[int, int]:
+        row, column = self.cursor_location
+        line = self.document.get_line(row)
+        if column >= len(line):
+            return super().get_cursor_right_location()
+        return row, graphemes.next_boundary(line, column)
+
+    def _substitute_closed(self) -> None:
+        """Swaps a fully typed ``:name:`` for its emoji the moment the closing colon lands."""
+        row, column = self.cursor_location
+        found = shortcodes.closed(self.document.get_line(row), column)
+        if found is None:
+            return
+        token, emoji = found
+        self.replace(emoji, (row, token.start), (row, token.start + token.length))
+        self.move_cursor((row, token.start + len(emoji)))
+        self.post_message(self.Substituted(self, token.query, emoji))
 
     async def _on_key(self, event: events.Key) -> None:
         if self.offer is not None:
@@ -147,6 +204,8 @@ class Composer(TextArea):
             self.insert("  ")
         else:
             await super()._on_key(event)
+            if event.character == ":":
+                self._substitute_closed()
         self.refresh_offers()
 
 

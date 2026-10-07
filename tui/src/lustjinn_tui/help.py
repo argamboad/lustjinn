@@ -105,6 +105,8 @@ SECTIONS: Final[tuple[Section, ...]] = (
             Row("Enter", "Send"),
             Row("/", "Start a command; an unknown one is refused, never sent"),
             Row("Tab  /  ↑ ↓", "Take the completion offered / choose another"),
+            Row(":name", "A snippet or an emoji, offered as you type; :name: is the emoji"),
+            Row("abc…", "After three letters, words from the dictionary; Tab takes one"),
             Row("/help", "Every command, with what each one costs"),
             Row("//", "Send a line that genuinely starts with a slash"),
             Row("Alt+Enter", "New line"),

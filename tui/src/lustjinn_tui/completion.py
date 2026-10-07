@@ -37,6 +37,8 @@ class Completion:
     """What the strip shows."""
     insert: str
     """What replaces the typed token when it is accepted."""
+    snippet: str | None = None
+    """A snippet's name: the token goes and its text is fetched and inserted in its place."""
 
 
 @dataclass(frozen=True, slots=True)

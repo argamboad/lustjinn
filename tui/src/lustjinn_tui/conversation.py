@@ -31,11 +31,12 @@ from textual.widgets import Input, Static
 from textual.worker import Worker
 
 from lustjinn_tui import buttons as phone
-from lustjinn_tui import commands
+from lustjinn_tui import commands, emoji, shortcodes, words
 from lustjinn_tui.api import (
     ApiError,
     AsideDone,
     Delta,
+    Entry,
     Event,
     Failed,
     Message,
@@ -155,6 +156,7 @@ class ConversationScreen(View):
         self._loaded = False
         self.slash = Commands()  # the composer's commands, not the palette's
         self._sent_command: str | None = None
+        self._snippets: dict[str, Entry] = {}
 
     # -- the frame ------------------------------------------------------------------------------
 
@@ -244,11 +246,22 @@ class ConversationScreen(View):
     def on_mount(self) -> None:
         for selector in ("#search", "#branch", "#composer-rule", "Caption", "#composer", "Strip"):
             self.query_one(selector).display = False
-        self.composer.providers.append(self._offer_commands)
+        # A command name wins over everything; a colon token beats a word, since the letters
+        # after a colon are a shortcode's name; a word is offered last.
+        self.composer.providers.extend([self._offer_commands, self._offer_colon, self._offer_words])
         self._size_column()
         self._show_header()
         self.run_worker(partial(self._load, "Loading the story"), exclusive=True)
         self.run_worker(self._read_commands, exclusive=False)
+        self.run_worker(self._read_snippets, exclusive=False)
+
+    async def _read_snippets(self) -> None:
+        """The snippet shelf's names, once per open: a snippet added meanwhile appears after
+        reopening, the same freshness the character picker has."""
+        with contextlib.suppress(ApiError, UnreachableError):
+            self._snippets = {
+                entry.name.lower(): entry for entry in await self.lustjinn.api.entries("snippets")
+            }
 
     async def _read_commands(self) -> None:
         """The server's list wins over the shipped one whenever it can be read."""
@@ -469,9 +482,66 @@ class ConversationScreen(View):
             tuple(Completion(f"/{spec.name}", f"/{spec.name} ") for spec in found),
         )
 
+    def _offer_colon(self, line: str, column: int, first_line: bool) -> Offer | None:
+        """``:name`` being typed: snippets and emoji share the one trigger on purpose — one
+        rail, one muscle memory. A snippet inserts a page where an emoji inserts a glyph, so
+        the snippets come first when the query matches one."""
+        token = shortcodes.at(line, column)
+        if token is None:
+            return None
+        wanted = token.query.lower()
+        snippets = [
+            Completion(f"» {entry.name}", "", snippet=entry.name)
+            for name, entry in sorted(self._snippets.items())
+            if name.startswith(wanted)
+        ][:LIMIT]
+        found = [
+            Completion(f"{s.emoji} {s.name}", s.emoji) for s in emoji.suggest(token.query, LIMIT)
+        ]
+        completions = tuple([*snippets, *found])
+        if not completions:
+            return None
+        return Offer(token.start, token.length, completions)
+
+    def _offer_words(self, line: str, column: int, first_line: bool) -> Offer | None:
+        token = words.token_at(line, column)
+        if token is None:
+            return None
+        found = words.suggest(token.prefix, LIMIT)
+        if not found:
+            return None
+        return Offer(
+            token.start,
+            token.length,
+            tuple(Completion(w, words.match_case(token.prefix, w)) for w in found),
+        )
+
+    @on(Composer.Substituted)
+    def _substituted(self, event: Composer.Substituted) -> None:
+        self.status(f"Inserted {event.emoji}  :{event.name}:")
+
+    @on(Composer.SnippetWanted)
+    def _snippet_wanted(self, event: Composer.SnippetWanted) -> None:
+        self.run_worker(partial(self._expand_snippet, event.name), exclusive=False)
+
+    async def _expand_snippet(self, name: str) -> None:
+        """The snippet's text, inserted at the caret and still editable: what is sent is
+        whatever the composer holds when Enter lands, the same as typing it by hand."""
+        entry = self._snippets.get(name.lower())
+        full = None
+        if entry is not None:
+            full = await self.lustjinn.call(
+                "Reading the snippet", self.lustjinn.api.entry("snippets", entry.id)
+            )
+        if full is None or not full.text.strip():
+            self.status(f"The snippet '{name}' is empty or gone.", Kind.WARNING)
+            return
+        self.composer.insert(full.text.rstrip())
+        self.status(f"Expanded :{name} — still editable before sending.")
+
     @on(Composer.Send)
     def _send(self) -> None:
-        text = self.composer.text.strip()
+        text = shortcodes.expand_emoji(self.composer.text.strip())
         if not text:
             self.status("Nothing to send.", Kind.WARNING)
             return
