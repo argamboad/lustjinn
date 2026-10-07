@@ -1,0 +1,21 @@
+[project]
+name = "lustjinn-tui"
+version = "0.1.0"
+description = "Lustjinn in the terminal: a Textual client of the Lustjinn API."
+authors = [
+    { name = "Allan Gamboa", email = "argamboad@msn.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "httpx2>=2.13.1",
+    "platformdirs>=4.0",
+    "pydantic>=2.0",
+    "textual>=8.2.8",
+]
+
+[project.scripts]
+lustjinn-tui = "lustjinn_tui.app:main"
+
+[build-system]
+requires = ["uv_build>=0.12.21,<0.13.0"]
+build-backend = "uv_build"

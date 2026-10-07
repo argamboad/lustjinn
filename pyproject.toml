@@ -22,9 +22,18 @@ dependencies = [
 requires = ["uv_build>=0.12.21,<0.13.0"]
 build-backend = "uv_build"
 
+# The terminal client is a second package in a uv workspace (`tui/`): one lock file, one
+# environment, but Textual stays out of the API's own dependencies, so Render never installs it.
+[tool.uv.workspace]
+members = ["tui"]
+
+[tool.uv.sources]
+lustjinn-tui = { workspace = true }
+
 [dependency-groups]
 dev = [
     "httpx2>=2.13.1",
+    "lustjinn-tui",
     "pyright>=1.1.414",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
@@ -32,8 +41,8 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["."]  # so tests can share helpers as `tests.factories`
+testpaths = ["tests", "tui/tests"]
+pythonpath = [".", "tui/tests"]  # tests share helpers as `tests.factories` / `tui_support`
 # pytest-asyncio: `async def` tests and fixtures run without a marker, all on one event loop —
 # the session-wide database engine belongs to that loop.
 asyncio_mode = "auto"
@@ -48,6 +57,8 @@ line-length = 100
 extend-exclude = ["docs"]
 
 [tool.ruff.lint]
+# The terminal client draws with these on purpose (breadcrumbs, ellipses, the back button).
+allowed-confusables = ["›", "‹", "…", "·", "×"]
 select = [
     "E", "W",   # pycodestyle: the style basics
     "F",        # pyflakes: unused names, undefined names
@@ -61,6 +72,10 @@ select = [
     "PT",       # pytest style
 ]
 
+[tool.ruff.lint.isort]
+# Both packages and the test helpers are ours: isort groups them after the third-party imports.
+known-first-party = ["lustjinn", "lustjinn_tui", "tests", "tui_support"]
+
 [tool.pyright]
-include = ["src", "tests", "scripts"]
+include = ["src", "tests", "scripts", "tui"]
 typeCheckingMode = "strict"
