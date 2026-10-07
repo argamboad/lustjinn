@@ -51,6 +51,10 @@ sketch, the lessons airp paid for, and the roadmap.
   commit. The design tokens are `web/src/lib/theme.css`; every colour is a token defined for
   both themes, and no component names a colour of its own. `node scripts/icons.mjs` renders the
   icon set from `brand/logo.svg` when the logo changes.
+- **The terminal client lives in `tui/`** (Textual, a uv workspace member named `lustjinn-tui`):
+  `uv run lustjinn-tui` opens it; its tests are `tui/tests/` and run with the root `uv run pytest`,
+  headless, through Textual's pilot. One dark theme, `tui/src/lustjinn_tui/theme.py`: every colour
+  is a role there, reached as a theme variable (`$muted`); no view names a colour of its own.
 
 ## Workflow
 - **One PR per roadmap step, one commit per issue.** Branch `step/N-…` from `develop`; each issue of
