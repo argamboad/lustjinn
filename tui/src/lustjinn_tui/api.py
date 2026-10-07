@@ -109,7 +109,7 @@ class Entry(BaseModel):
 class EntryFull(Entry):
     text: str
     opening: str | None = None
-    used_by: list[str] = Field(default_factory=list)
+    used_by: list[str] = Field(default_factory=list[str])
 
 
 class Defaults(BaseModel):
@@ -127,6 +127,13 @@ class Cut(BaseModel):
     facts_reopened: int = 0
 
 
+class ByKind(BaseModel):
+    kind: str
+    calls: int
+    cost: Decimal
+    unpriced: int = 0
+
+
 class StorySpend(BaseModel):
     """What one story has cost: the priced calls, and the share rerolled or cut away."""
 
@@ -136,7 +143,91 @@ class StorySpend(BaseModel):
     cost: Decimal
     discarded_calls: int = 0
     discarded_cost: Decimal = Decimal(0)
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    cached_tokens: int = 0
+    cached_share: float | None = None
     unpriced: int = 0
+    by_kind: list[ByKind] = Field(default_factory=list[ByKind])
+
+
+class Fact(BaseModel):
+    id: uuid.UUID
+    subject: str
+    text: str
+    valid_from_sequence: int
+    valid_to_sequence: int | None = None
+    model: str | None = None
+    pinned: bool = False
+
+
+class Tracker(BaseModel):
+    id: uuid.UUID
+    name: str
+    value: float
+    max: float
+    delta: float = 0
+    note: str | None = None
+    means: str | None = None
+    anchors: str | None = None
+    rule: str | None = None
+    updated_at_sequence: int | None = None
+
+
+class TurnAudit(BaseModel):
+    sequence: int
+    sent_at: datetime
+    hidden: bool = False
+    model: str | None = None
+    provider: str | None = None
+    estimated_prompt_tokens: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    context: str | None = None
+
+
+class AsideAudit(BaseModel):
+    sequence: int
+    asked_at: datetime
+    model: str | None = None
+    provider: str | None = None
+    estimated_prompt_tokens: int | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    context: str | None = None
+
+
+class Audit(BaseModel):
+    turns: list[TurnAudit]
+    asides: list[AsideAudit] = Field(default_factory=list[AsideAudit])
+
+
+class Hit(BaseModel):
+    scope: Literal["name", "message"]
+    story_id: uuid.UUID
+    story_name: str
+    message_id: uuid.UUID | None = None
+    sequence: int | None = None
+    role: Role | None = None
+    speaker: str | None = None
+    sent_at: str | None = None
+    snippet: str
+    score: int = 0
+
+
+class Results(BaseModel):
+    hits: list[Hit]
+    searched: int
+
+
+class Spec(BaseModel):
+    """One slash command the API recognises, as ``GET /commands`` lists it."""
+
+    name: str
+    usage: str
+    summary: str
+    cost: Literal["free", "billed", "write"]
+    needs_argument: bool = True
 
 
 class Choice(BaseModel):
@@ -210,6 +301,9 @@ Event = Delta | TurnDone | AsideDone | Said | Failed
 _stories = TypeAdapter(list[Story])
 _entries = TypeAdapter(list[Entry])
 _choices = TypeAdapter(list[Choice])
+_facts = TypeAdapter(list[Fact])
+_trackers = TypeAdapter(list[Tracker])
+_specs = TypeAdapter(list[Spec])
 _done = TypeAdapter[TurnDone | AsideDone | Said | Failed](Done)
 
 
@@ -355,6 +449,39 @@ class Api:
 
     async def story_spend(self, story_id: uuid.UUID) -> StorySpend:
         return StorySpend.model_validate(await self._request("GET", f"/stories/{story_id}/spend"))
+
+    # -- what a story holds beside its turns -------------------------------------------------
+
+    async def facts(self, story_id: uuid.UUID, *, all: bool = False) -> list[Fact]:
+        """The live facts, or every fact there ever was with ``all``."""
+        params = {"all": "true"} if all else None
+        return _facts.validate_python(
+            await self._request("GET", f"/stories/{story_id}/facts", params=params)
+        )
+
+    async def add_fact(self, story_id: uuid.UUID, subject: str, text: str) -> Fact:
+        return Fact.model_validate(
+            await self._request(
+                "POST", f"/stories/{story_id}/facts", json={"subject": subject, "text": text}
+            )
+        )
+
+    async def trackers(self, story_id: uuid.UUID) -> list[Tracker]:
+        return _trackers.validate_python(
+            await self._request("GET", f"/stories/{story_id}/trackers")
+        )
+
+    async def audit(self, story_id: uuid.UUID) -> Audit:
+        return Audit.model_validate(await self._request("GET", f"/stories/{story_id}/audit"))
+
+    async def search(self, query: str, story_id: uuid.UUID | None = None) -> Results:
+        params = {"q": query}
+        if story_id is not None:
+            params["story_id"] = str(story_id)
+        return Results.model_validate(await self._request("GET", "/search", params=params))
+
+    async def commands(self) -> list[Spec]:
+        return _specs.validate_python(await self._request("GET", "/commands"))
 
     # -- the library ---------------------------------------------------------------------------
 

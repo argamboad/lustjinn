@@ -23,6 +23,8 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import TextArea
 
+from lustjinn_tui.completion import Offer, Provider
+
 NEWLINE_KEYS: Final = frozenset({"alt+enter", "shift+enter", "ctrl+enter", "ctrl+j"})
 
 
@@ -54,11 +56,79 @@ class Composer(TextArea):
         def control(self) -> Composer:
             return self.composer
 
+    class Offered(Message):
+        """The completions changed: the strip under the composer should show ``offer``."""
+
+        def __init__(self, composer: Composer, offer: Offer | None) -> None:
+            super().__init__()
+            self.composer = composer
+            self.offer = offer
+
+        @property
+        def control(self) -> Composer:
+            return self.composer
+
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id, soft_wrap=True, show_line_numbers=False, compact=True)
         self.newline_on_enter = False
+        self.providers: list[Provider] = []
+        self.offer: Offer | None = None
+        self.choice = 0
+
+    # -- completion ---------------------------------------------------------------------------
+
+    def refresh_offers(self) -> None:
+        """Recomputed after every key rather than only the ones that obviously matter: what
+        opens and closes the strip is where the caret ended up, and that changes on movement
+        and undo as much as on typing. The first provider with an offer wins."""
+        row, column = self.cursor_location
+        line = self.document.get_line(row)
+        offer = None
+        for provider in self.providers:
+            offer = provider(line, column, row == 0)
+            if offer is not None:
+                break
+        if offer != self.offer:
+            self.offer = offer
+            self.choice = 0
+            self.post_message(self.Offered(self, offer))
+
+    def dismiss_offers(self) -> None:
+        if self.offer is not None:
+            self.offer = None
+            self.post_message(self.Offered(self, None))
+
+    def accept(self) -> None:
+        """Replaces the typed token with the chosen completion."""
+        if self.offer is None:
+            return
+        chosen = self.offer.completions[self.choice % len(self.offer.completions)]
+        row = self.cursor_location[0]
+        self.replace(
+            chosen.insert, (row, self.offer.start), (row, self.offer.start + self.offer.length)
+        )
+        self.move_cursor((row, self.offer.start + len(chosen.insert)))
+        self.dismiss_offers()
 
     async def _on_key(self, event: events.Key) -> None:
+        if self.offer is not None:
+            claimed = True
+            if event.key == "tab":
+                self.accept()
+            elif event.key == "up":
+                self.choice = (self.choice - 1) % len(self.offer.completions)
+                self.post_message(self.Offered(self, self.offer))
+            elif event.key == "down":
+                self.choice = (self.choice + 1) % len(self.offer.completions)
+                self.post_message(self.Offered(self, self.offer))
+            elif event.key == "escape":
+                self.dismiss_offers()  # the list first; the composer only on a second press
+            else:
+                claimed = False
+            if claimed:
+                event.stop()
+                event.prevent_default()
+                return
         if event.key == "enter" and not self.newline_on_enter:
             event.stop()
             event.prevent_default()
@@ -68,13 +138,13 @@ class Composer(TextArea):
             event.stop()
             event.prevent_default()
             self.insert("\n")
-            return
-        if event.key == "tab":
+        elif event.key == "tab":
             event.stop()
             event.prevent_default()
             self.insert("  ")
-            return
-        await super()._on_key(event)
+        else:
+            await super()._on_key(event)
+        self.refresh_offers()
 
 
 class Caption(Widget):

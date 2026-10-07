@@ -14,6 +14,7 @@ typed.
 
 from __future__ import annotations
 
+import contextlib
 import time
 import uuid
 from collections.abc import AsyncIterator
@@ -29,6 +30,7 @@ from textual.timer import Timer
 from textual.widgets import Input, Static
 from textual.worker import Worker
 
+from lustjinn_tui import commands
 from lustjinn_tui.api import (
     ApiError,
     AsideDone,
@@ -36,16 +38,20 @@ from lustjinn_tui.api import (
     Event,
     Failed,
     Message,
+    Said,
     SignedOutError,
     Story,
     StorySpend,
     TurnDone,
     UnreachableError,
 )
+from lustjinn_tui.commands import Command, Commands, Incomplete, Prose, Unknown
+from lustjinn_tui.completion import LIMIT, Completion, Offer, Strip
 from lustjinn_tui.composer import Caption, Composer
 from lustjinn_tui.confirm import ConfirmScreen
 from lustjinn_tui.hairline import Hairline
 from lustjinn_tui.legend import Hint
+from lustjinn_tui.panes import AskScreen, TextPaneScreen
 from lustjinn_tui.regenerate import RegenerateScreen
 from lustjinn_tui.status import Kind
 from lustjinn_tui.textfmt import fit
@@ -123,6 +129,8 @@ class ConversationScreen(View):
         self._clock: Timer | None = None
         self._turn: Worker[None] | None = None
         self._loaded = False
+        self.commands = Commands()
+        self._sent_command: str | None = None
 
     # -- the frame ------------------------------------------------------------------------------
 
@@ -151,13 +159,21 @@ class ConversationScreen(View):
             yield Hairline(id="composer-rule")
             yield Caption()
             yield Composer(id="composer")
+            yield Strip()
 
     def on_mount(self) -> None:
-        for selector in ("#search", "#branch", "#composer-rule", "Caption", "#composer"):
+        for selector in ("#search", "#branch", "#composer-rule", "Caption", "#composer", "Strip"):
             self.query_one(selector).display = False
+        self.composer.providers.append(self._offer_commands)
         self._size_column()
         self._show_header()
         self.run_worker(partial(self._load, "Loading the story"), exclusive=True)
+        self.run_worker(self._read_commands, exclusive=False)
+
+    async def _read_commands(self) -> None:
+        """The server's list wins over the shipped one whenever it can be read."""
+        with contextlib.suppress(ApiError, UnreachableError):
+            self.commands = Commands(await self.lustjinn.api.commands())
 
     def on_resize(self) -> None:
         self._size_column()
@@ -319,6 +335,7 @@ class ConversationScreen(View):
         self._mode = "read"
         for selector in ("#composer-rule", "Caption", "#composer"):
             self.query_one(selector).display = False
+        self.composer.dismiss_offers()
         self.set_focus(None)
         self.refresh_hints()
         if self.composer.text:
@@ -331,18 +348,150 @@ class ConversationScreen(View):
     def _measure_draft(self) -> None:
         self.query_one(Caption).measure(self.composer.text)
 
+    @on(Composer.Offered)
+    def _offered(self, event: Composer.Offered) -> None:
+        strip = self.query_one(Strip)
+        strip.show(event.offer)
+        strip.index = self.composer.choice
+        strip.refresh()
+
+    def _offer_commands(self, line: str, column: int, first_line: bool) -> Offer | None:
+        """A command name being typed wins over everything, and only in the one place a
+        command can start: the very first character of the message."""
+        typed = commands.command_being_typed(line, column, first_line=first_line)
+        if typed is None:
+            return None
+        found = self.commands.matching(typed)[:LIMIT]
+        if not found:
+            return None
+        return Offer(
+            0,
+            len(typed) + 1,
+            tuple(Completion(f"/{spec.name}", f"/{spec.name} ") for spec in found),
+        )
+
     @on(Composer.Send)
     def _send(self) -> None:
         text = self.composer.text.strip()
         if not text:
             self.status("Nothing to send.", Kind.WARNING)
             return
-        self.send(text)
+        self.dispatch(text)
+
+    def dispatch(self, text: str) -> None:
+        """Runs whatever the composer turned out to hold: a message, a command, or a refusal."""
+        match self.commands.parse(text):
+            case Prose():
+                # As typed, a doubled slash included: the API strips it the same way, and the
+                # hash that makes a retry one turn is over what it received.
+                self._sent_command = None
+                self.send(text)
+            case Unknown(name=name):
+                # Refused rather than sent. A typo would otherwise cost what the message it was
+                # meant to be would have cost, and land in the story as a line the character
+                # has to react to — which append-only means nobody can take back.
+                self.status(
+                    f"There is no /{name} command. Type /help for the list, or //{name} to "
+                    "send it as a message.",
+                    Kind.WARNING,
+                )
+            case Incomplete(spec=spec):
+                self.status(f"{spec.usage} — nothing has been sent.", Kind.WARNING)
+            case Command(spec=spec, argument=argument, local=True):
+                # A free command's draft goes now; a billed or writing one keeps it until the
+                # work has landed: re-typing /facts costs a second, re-typing the question a
+                # failed /ask ate costs the reader the thought behind it.
+                self.composer.clear()
+                self._measure_draft()
+                self._close_composer()
+                self.run_worker(partial(self._report, spec.name, argument), exclusive=True)
+            case Command(spec=spec, argument=argument):
+                self._sent_command = spec.name
+                if spec.cost == "free":
+                    self.composer.clear()
+                    self._measure_draft()
+                self.send(text)
 
     def send(self, text: str) -> None:
-        """Sends ``text`` as the reader's turn and streams the reply."""
+        """Sends ``text`` — a message or an API command — and streams what comes back."""
         self._close_composer()
         self._begin_turn("Sending", self.lustjinn.api.send(self.story.id, text))
+
+    async def _report(self, name: str, argument: str) -> None:
+        """The reading commands, answered from the API's GET endpoints and shown in a pane, or
+        a status when there is nothing to show."""
+        api = self.lustjinn.api
+        story = self.story
+        report: commands.Report | None = None
+        if name == "card":
+            card = await self.lustjinn.call(
+                "Reading the card", api.entry("characters", story.character_id)
+            )
+            if card is None:
+                return
+            report = commands.page_report("Character", card.text, "This story has no character.")
+        elif name == "persona":
+            persona_id = story.persona_id
+            if persona_id is None:
+                defaults = await self.lustjinn.call("Reading the persona", api.defaults())
+                if defaults is None:
+                    return
+                persona_id = defaults.default_persona_id
+            text = None
+            if persona_id is not None:
+                persona = await self.lustjinn.call(
+                    "Reading the persona", api.entry("personas", persona_id)
+                )
+                if persona is None:
+                    return
+                text = persona.text
+            report = commands.page_report("Persona", text, "This story has no persona.")
+        elif name == "facts":
+            facts = await self.lustjinn.call("Facts", api.facts(story.id, all=True))
+            if facts is None:
+                return
+            report = commands.facts_report(facts)
+        elif name == "trackers":
+            meters = await self.lustjinn.call("Trackers", api.trackers(story.id))
+            if meters is None:
+                return
+            report = commands.trackers_report(meters)
+        elif name == "audit":
+            audit = await self.lustjinn.call("Audit", api.audit(story.id))
+            if audit is None:
+                return
+            report = commands.audit_report(audit)
+        elif name == "cost":
+            await self._refresh_spend()  # the header's figure comes up to date with the pane
+            report = commands.cost_report(self._spend)
+        elif name == "search":
+            self._find(argument)
+            return
+        elif name == "help":
+            report = commands.Report(
+                "Commands", "typed in the composer", tuple(self.commands.help_lines())
+            )
+        if report is None:
+            return
+        if report.is_empty:
+            self.status(report.subtitle)
+        else:
+            self.lustjinn.push_screen(TextPaneScreen(report))
+
+    def _find(self, query: str) -> None:
+        """``/search`` runs the in-story search that ``/`` in reading mode opens."""
+        self._query = query
+        self.transcript.search(query)
+        self._show_header()
+        hits = sum(1 for m in self.messages if query.lower() in m.text.lower())
+        if hits == 0:
+            self._query = ""
+            self.transcript.search("")
+            self._show_header()
+            self.status(f'"{query}" is not in this story.', Kind.WARNING)
+            return
+        self.action_match(1)
+        self.status(f"{hits} message(s) match. n for the next one.", Kind.SUCCESS)
 
     def action_carry_on(self) -> None:
         """No confirmation, deliberately: a prompt before every continuation would make the one
@@ -409,9 +558,9 @@ class ConversationScreen(View):
                 elif isinstance(event, Failed):
                     self._failed(event)
                 elif isinstance(event, AsideDone):
-                    self.status(f"Answered: {fit(event.aside.answer, 200)}")
+                    self._answered(event)
                 else:
-                    self.status(fit(event.text, 200))
+                    self._said(event)
         except SignedOutError as refused:
             self.lustjinn.signed_out(refused.detail)
         except UnreachableError:
@@ -449,6 +598,32 @@ class ConversationScreen(View):
         else:
             self.status("Reply received.", Kind.SUCCESS)
         self.run_worker(self._refresh_spend, exclusive=False)
+
+    def _answered(self, done: AsideDone) -> None:
+        """A question answered out of character: the draft goes only now — a question that
+        failed is one the reader would have to type again, and it was theirs."""
+        self.composer.clear()
+        self._measure_draft()
+        self.transcript.end_pending()
+        self.run_worker(self._refresh_spend, exclusive=False)
+        self.lustjinn.push_screen(AskScreen(self.story.id, self.story.character_name, done.aside))
+
+    def _said(self, said: Said) -> None:
+        """A command that answers in words and stores no turn: a recap gets a pane, a write
+        gets the status row."""
+        self.composer.clear()
+        self._measure_draft()
+        self.transcript.end_pending()
+        if self._sent_command == "recap":
+            self.lustjinn.push_screen(
+                TextPaneScreen(
+                    commands.Report(
+                        "Recap", "nothing stored, nothing billed", tuple(said.text.splitlines())
+                    )
+                )
+            )
+        else:
+            self.status(said.text, Kind.SUCCESS)
 
     def _failed(self, failed: Failed) -> None:
         """The model did not answer. The reader's message, when it was stored, is in the

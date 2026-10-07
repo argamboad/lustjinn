@@ -103,11 +103,13 @@ SECTIONS: Final[tuple[Section, ...]] = (
         "Composer",
         (
             Row("Enter", "Send"),
-            Row("/", "Start a command; Tab completes the name"),
+            Row("/", "Start a command; an unknown one is refused, never sent"),
+            Row("Tab  /  ↑ ↓", "Take the completion offered / choose another"),
             Row("/help", "Every command, with what each one costs"),
+            Row("//", "Send a line that genuinely starts with a slash"),
             Row("Alt+Enter", "New line"),
             Row("Ctrl+Z / Ctrl+Y", "Undo / redo"),
-            Row("Esc", "Stop writing, keeping the draft"),
+            Row("Esc", "Dismiss the completions; then stop writing, keeping the draft"),
         ),
     ),
     Section(

@@ -115,6 +115,54 @@ class FakeServer:
         self.reply = "She looks up. *A pause.*"
         self.reply_pieces = 3
         self.model_fails: str | None = None  # the model's failure, as the API's error event
+        self.facts: dict[str, list[dict[str, Any]]] = {}  # story id -> facts
+        self.trackers: dict[str, list[dict[str, Any]]] = {}
+        self.audits: dict[str, dict[str, Any]] = {}
+        self.answer = "She is twenty-nine; the story said so in the second scene."
+        self.commands: list[dict[str, Any]] = [
+            {
+                "name": "do",
+                "usage": "/do <direction>",
+                "summary": "Steer",
+                "cost": "billed",
+                "needs_argument": True,
+            },
+            {
+                "name": "focus",
+                "usage": "/focus <who>",
+                "summary": "Hand over",
+                "cost": "billed",
+                "needs_argument": True,
+            },
+            {
+                "name": "ask",
+                "usage": "/ask <question>",
+                "summary": "Ask",
+                "cost": "billed",
+                "needs_argument": True,
+            },
+            {
+                "name": "recap",
+                "usage": "/recap [turns]",
+                "summary": "Recap",
+                "cost": "free",
+                "needs_argument": False,
+            },
+            {
+                "name": "fact",
+                "usage": "/fact <statement>",
+                "summary": "Pin",
+                "cost": "write",
+                "needs_argument": True,
+            },
+            {
+                "name": "tracker",
+                "usage": "/tracker <name> <value>",
+                "summary": "Set",
+                "cost": "write",
+                "needs_argument": True,
+            },
+        ]
         self.reroll_bodies: list[dict[str, Any]] = []
         self.spend: dict[str, tuple[str, str]] = {}  # story id -> (cost, discarded)
 
@@ -184,6 +232,10 @@ class FakeServer:
             return self._stories(parts, request)
         if parts[0] == "library":
             return self._library(parts, request)
+        if path == "/commands":
+            return httpx2.Response(200, json=self.commands)
+        if path == "/search":
+            return self._search(request)
         if path == "/models":
             if self.models_unreadable:
                 return httpx2.Response(
@@ -221,6 +273,30 @@ class FakeServer:
             return httpx2.Response(204)
         if len(parts) == 3 and parts[2] in {"send", "continue", "reroll"}:
             return self._turn(found, request)
+        if len(parts) == 3 and parts[2] == "facts" and request.method == "GET":
+            listed = self.facts.get(found["id"], [])
+            if request.url.params.get("all") != "true":
+                listed = [f for f in listed if f["valid_to_sequence"] is None]
+            return httpx2.Response(200, json=listed)
+        if len(parts) == 3 and parts[2] == "facts" and request.method == "POST":
+            body = json.loads(request.content)
+            fact = {
+                "id": str(uuid.uuid4()),
+                "subject": body["subject"],
+                "text": body["text"],
+                "valid_from_sequence": len(found["messages"]),
+                "valid_to_sequence": None,
+                "model": None,
+                "pinned": True,
+            }
+            self.facts.setdefault(found["id"], []).append(fact)
+            return httpx2.Response(201, json=fact)
+        if len(parts) == 3 and parts[2] == "trackers" and request.method == "GET":
+            return httpx2.Response(200, json=self.trackers.get(found["id"], []))
+        if len(parts) == 3 and parts[2] == "audit":
+            return httpx2.Response(
+                200, json=self.audits.get(found["id"], {"turns": [], "asides": []})
+            )
         if len(parts) == 3 and parts[2] == "spend":
             cost, discarded = self.spend.get(found["id"], ("0", "0"))
             calls = sum(1 for m in found["messages"] if m["role"] == "assistant" and m["model"])
@@ -339,10 +415,47 @@ class FakeServer:
             return httpx2.Response(200, json=found)
         return httpx2.Response(404, json={"detail": f"Nothing answers {request.method} {parts}."})
 
+    def _search(self, request: httpx2.Request) -> httpx2.Response:
+        query = request.url.params.get("q", "").lower()
+        within = request.url.params.get("story_id")
+        hits: list[dict[str, Any]] = []
+        for s in self.stories:
+            if within is not None and s["id"] != within:
+                continue
+            if within is None and query in s["name"].lower():
+                hits.append(
+                    {
+                        "scope": "name",
+                        "story_id": s["id"],
+                        "story_name": s["name"],
+                        "snippet": s["name"],
+                        "score": 100,
+                    }
+                )
+            for m in s["messages"]:
+                if query in m["text"].lower():
+                    hits.append(
+                        {
+                            "scope": "message",
+                            "story_id": s["id"],
+                            "story_name": s["name"],
+                            "message_id": m["id"],
+                            "sequence": m["sequence"],
+                            "role": m["role"],
+                            "speaker": "You" if m["role"] == "user" else s["character_name"],
+                            "sent_at": m["sent_at"],
+                            "snippet": m["text"][:96],
+                            "score": 40,
+                        }
+                    )
+        return httpx2.Response(200, json={"hits": hits, "searched": len(self.stories)})
+
     def _turn(self, found: dict[str, Any], request: httpx2.Request) -> httpx2.Response:
         body: dict[str, Any] = json.loads(request.content) if request.content else {}
         messages: list[dict[str, Any]] = found["messages"]
         kind = request.url.path.rsplit("/", 1)[-1]
+        if kind == "send" and str(body.get("text", "")).startswith("/"):
+            return self._command(found, str(body["text"]))
         if kind == "reroll":
             last = messages[-1] if messages else None
             if last is None or last["role"] != "assistant":
@@ -396,3 +509,106 @@ class FakeServer:
 
     async def _failure(self, sent: dict[str, Any] | None, detail: str) -> AsyncIterator[bytes]:
         yield sse("error", {"kind": "error", "detail": detail, "sent": sent})
+
+    def _command(self, found: dict[str, Any], text: str) -> httpx2.Response:
+        """The API's own commands, as `/send` answers them: a turn, an aside, a word, or a
+        refusal before anything streams."""
+        if text.startswith("//"):
+            return self._prose(found, text[1:])
+        name, _, argument = text[1:].partition(" ")
+        argument = argument.strip()
+        known = {c["name"]: c for c in self.commands}
+        if name not in known:
+            return httpx2.Response(
+                422,
+                json={
+                    "detail": f"/{name} is not a command, so nothing was sent and nothing was "
+                    "stored. To send a line that begins with a slash, begin it with two."
+                },
+            )
+        if known[name]["needs_argument"] and not argument:
+            return httpx2.Response(
+                422, json={"detail": f"Usage: {known[name]['usage']} — nothing was stored."}
+            )
+        stream = {"content-type": "text/event-stream"}
+        if name == "ask":
+            aside = {
+                "id": str(uuid.uuid4()),
+                "sequence": len(found["messages"]),
+                "question": argument,
+                "answer": self.answer,
+                "model": "scripted/model",
+                "provider": None,
+                "asked_at": datetime(2026, 10, 7, 10, tzinfo=UTC).isoformat(),
+            }
+            return httpx2.Response(
+                200, headers=stream, content=self._single("done", {"kind": "aside", "aside": aside})
+            )
+        if name == "recap":
+            text = "Earlier: the fog came in.\n\n" + "\n\n".join(
+                f"{'You' if m['role'] == 'user' else found['character_name']}: {m['text']}"
+                for m in found["messages"][-4:]
+            )
+            return httpx2.Response(
+                200, headers=stream, content=self._single("done", {"kind": "said", "text": text})
+            )
+        if name == "fact":
+            self.facts.setdefault(found["id"], []).append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "subject": found["character_name"],
+                    "text": argument,
+                    "valid_from_sequence": len(found["messages"]),
+                    "valid_to_sequence": None,
+                    "model": None,
+                    "pinned": True,
+                }
+            )
+            said = (
+                f"Pinned under {found['character_name']}. It is in every prompt from the next "
+                "turn on."
+            )
+            return httpx2.Response(
+                200, headers=stream, content=self._single("done", {"kind": "said", "text": said})
+            )
+        if name == "tracker":
+            meter, _, value = argument.rpartition(" ")
+            try:
+                number = float(value)
+            except ValueError:
+                return httpx2.Response(
+                    422,
+                    json={
+                        "detail": "/tracker <name> <value> — the value has to be a number, so "
+                        "nothing was stored."
+                    },
+                )
+            return httpx2.Response(
+                200,
+                headers=stream,
+                content=self._single(
+                    "done", {"kind": "said", "text": f"{meter} is now {number:g}."}
+                ),
+            )
+        # /do and /focus: a reply with nothing from the reader, or a message under a direction.
+        message_text = None
+        if name == "do" and "\n\n" in argument:
+            _, _, message_text = argument.partition("\n\n")
+        return self._prose(found, message_text)
+
+    def _prose(self, found: dict[str, Any], text: str | None) -> httpx2.Response:
+        messages: list[dict[str, Any]] = found["messages"]
+        sent = None
+        if text is not None:
+            sent = message(len(messages) + 1, "user", text)
+            messages.append(sent)
+        reply = message(len(messages) + 1, "assistant", self.reply)
+        messages.append(reply)
+        found["last_message_at"] = reply["sent_at"]
+        found["last_message_preview"] = reply["text"][:200]
+        return httpx2.Response(
+            200, headers={"content-type": "text/event-stream"}, content=self._events(sent, reply)
+        )
+
+    async def _single(self, name: str, data: object) -> AsyncIterator[bytes]:
+        yield sse(name, data)
