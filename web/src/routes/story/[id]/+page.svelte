@@ -5,6 +5,7 @@
 	import AppBar from '#lib/AppBar.svelte';
 	import Composer from '#lib/Composer.svelte';
 	import MessageView from '#lib/MessageView.svelte';
+	import MeterStrip from '#lib/MeterStrip.svelte';
 	import RerollSheet from '#lib/RerollSheet.svelte';
 	import Sheet from '#lib/Sheet.svelte';
 	import {
@@ -13,9 +14,12 @@
 		Unreachable,
 		type Command,
 		type Done,
+		type EntryFull,
 		type Message,
 		type StoryWithMessages
 	} from '#lib/api.ts';
+	import { Extras } from '#lib/extras.svelte.ts';
+	import { expandEmoji } from '#lib/shortcodes.ts';
 	import { stories } from '#lib/stories.svelte.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
@@ -24,6 +28,7 @@
 	let story = $state<StoryWithMessages | null>(null);
 	let problem = $state<string | null>(null);
 	let commands = $state<Command[]>([]);
+	let snippets = $state<EntryFull[]>([]);
 	/** The reader's message as sent, before the API confirms it. */
 	let pendingSent = $state<string | null>(null);
 	/** The reply as it streams in. */
@@ -35,6 +40,7 @@
 	let rerollOpen = $state(false);
 	let menuFor = $state<Message | null>(null);
 	let storyMenu = $state(false);
+	let extras = $state<Extras | null>(null);
 	let renaming = $state(false);
 	let newName = $state('');
 	let cutConfirm = $state(false);
@@ -60,6 +66,12 @@
 	onMount(async () => {
 		try {
 			[story, commands] = await Promise.all([api.story(id), api.commands()]);
+			api
+				.snippets()
+				.then((found) => (snippets = found))
+				.catch(() => undefined);
+			extras = new Extras(id);
+			void extras.load();
 			await scrollToEnd(false);
 		} catch (error) {
 			problem = error instanceof Error ? error.message : 'The story could not be read.';
@@ -132,6 +144,7 @@
 					);
 				}
 				touchStoryList();
+				void extras?.refresh(); // the meters may have moved; the audit has a new line
 				break;
 			}
 			case 'aside':
@@ -158,7 +171,9 @@
 		}
 	}
 
-	function send(text: string) {
+	function send(typed: string) {
+		// Emoji shortcodes expand here; a bare `:name` is a snippet trigger the API expands.
+		const text = expandEmoji(typed);
 		pendingSent = text;
 		void scrollToEnd();
 		void run((onDelta) => api.send(id, text, onDelta));
@@ -255,6 +270,7 @@
 <div class="screen">
 	<AppBar title={story?.name ?? 'Story'} {sub} back="/">
 		{#snippet actions()}
+			<a class="btn icon" href="/story/{id}/settings" aria-label="Dials and meters">◐</a>
 			<button
 				class="btn icon"
 				type="button"
@@ -272,7 +288,8 @@
 		{:else}
 			{#if story.messages.length === 0 && !pendingSent}
 				<p class="muted center">
-					Nothing has been said yet. Write the first turn, or carry on to let {story.character_name} begin.
+					Nothing has been said yet. Write the first turn, or carry on to let {story.character_name}
+					begin.
 				</p>
 			{/if}
 			{#each visible as message (message.id)}
@@ -306,7 +323,13 @@
 		{/if}
 	</main>
 
-	<Composer bind:this={composer} {commands} {busy} onsend={send} oncarryon={carryOn} />
+	{#if extras}
+		<MeterStrip
+			trackers={extras.trackers}
+			onopen={() => goto(`/story/${id}/settings?tab=meters`)}
+		/>
+	{/if}
+	<Composer bind:this={composer} {commands} {snippets} {busy} onsend={send} oncarryon={carryOn} />
 </div>
 
 <RerollSheet bind:open={rerollOpen} onreroll={reroll} />
@@ -392,12 +415,19 @@
 	}
 	.convo {
 		flex: 1;
-		overflow: auto;
-		padding: 12px 14px 16px;
-		display: grid;
-		gap: 12px;
-		align-content: end;
+		min-height: 0; /* a flex child shrinks only when told to; without this nothing scrolls */
+		overflow-y: auto;
+		padding: 8px 10px 10px;
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
 		overscroll-behavior: contain;
+		-webkit-overflow-scrolling: touch;
+	}
+	/* Short conversations sit at the bottom; long ones scroll. Never `align-content: end` here:
+	   content taller than the box then overflows upward, where no browser can scroll. */
+	.convo > :first-child {
+		margin-top: auto;
 	}
 	.center {
 		text-align: center;
@@ -408,7 +438,7 @@
 		padding: 16px;
 	}
 	.note {
-		justify-self: center;
+		align-self: center;
 		width: min(100%, 560px);
 		padding: 12px 14px;
 		border-radius: var(--r-m);

@@ -155,6 +155,7 @@
 <div class="screen">
 	<AppBar title="Stories" {sub} mark>
 		{#snippet actions()}
+			<a class="bar-link" href="/library">Library</a>
 			<a class="avatar" href="/you" aria-label="You">R</a>
 		{/snippet}
 	</AppBar>
@@ -268,6 +269,19 @@
 		display: flex;
 		flex-direction: column;
 	}
+	.bar-link {
+		display: none;
+		text-decoration: none;
+		color: var(--fg-2);
+		font-weight: 500;
+		font-size: 0.9rem;
+		padding: 6px 10px;
+	}
+	@media (min-width: 900px) {
+		.bar-link {
+			display: inline-block;
+		}
+	}
 	.avatar {
 		width: 34px;
 		height: 34px;
@@ -305,10 +319,11 @@
 	}
 	.list {
 		flex: 1;
+		min-height: 0;
 		overflow: auto;
 		padding: 0 12px 96px;
 		display: grid;
-		gap: 8px;
+		gap: 6px;
 		align-content: start;
 		overscroll-behavior: contain;
 	}
@@ -351,8 +366,8 @@
 		position: relative;
 		display: grid;
 		grid-template-columns: 44px 1fr auto;
-		gap: 12px;
-		padding: 12px;
+		gap: 10px;
+		padding: 10px;
 		border-radius: var(--r-m);
 		background: var(--surface);
 		border: 1px solid var(--line);

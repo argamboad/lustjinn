@@ -7,6 +7,7 @@
 	import { server } from '#lib/health.svelte.ts';
 	import { session } from '#lib/session.svelte.ts';
 	import { theme } from '#lib/theme.svelte.ts';
+	import { dev } from '$app/env';
 	import type { LayoutProps } from './$types';
 
 	let { children }: LayoutProps = $props();
@@ -20,6 +21,10 @@
 	// The static site opens instantly; the API may be asleep. Knock first, then show the app.
 	onMount(() => {
 		void server.wake();
+		// The offline shell, in a real build only: in the dev server a worker serves stale shells.
+		if (!dev && 'serviceWorker' in navigator) {
+			void navigator.serviceWorker.register('/service-worker.js', { type: 'module' });
+		}
 	});
 </script>
 

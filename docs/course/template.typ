@@ -123,6 +123,10 @@ $endif$
 // ---- Title page ------------------------------------------------------------------------------
 #page(footer: none)[
   #v(1fr)
+  // The logo, as the app's own tile: the robot genie rising from the lamp, cream and gold on
+  // navy, which is the one square that reads the same on the dark and the light edition.
+  #box(clip: true, radius: 18pt, image("/brand/logo.svg", width: 4.2cm))
+  #v(1.2em)
   #text(size: 48pt, weight: "bold", fill: accent)[$title$]
   #v(0.2em)
   #text(size: 16pt, fill: ink)[$subtitle$]

@@ -20,7 +20,7 @@ on:
         description: Deploy after the gates are green (staging deploys from develop)
         type: choice
         default: none
-        options: [none, staging]
+        options: [none, staging, web-staging, both]
 
 permissions:
   contents: read
@@ -121,8 +121,8 @@ jobs:
         run: npm run build
 
   deploy-staging:
-    needs: gates
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.deploy == 'staging'
+    needs: [gates, web]
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["staging", "both"]'), github.event.inputs.deploy)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     concurrency:
@@ -173,4 +173,60 @@ jobs:
             sleep 15
           done
           echo "::error::staging did not report $EXPECT within 15 minutes — check the deploy in Render's dashboard."
+          exit 1
+
+  # The web app's static site: the same shape as the API's deploy. The build bakes the API's URL
+  # in (VITE_API_URL, set in Render's dashboard) and writes the commit to /version.txt, which is
+  # what "up with this commit" is read from.
+  deploy-web-staging:
+    needs: [gates, web]
+    if: github.event_name == 'workflow_dispatch' && contains(fromJSON('["web-staging", "both"]'), github.event.inputs.deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-web-staging
+      cancel-in-progress: true
+    env:
+      HOOK: ${{ secrets.RENDER_DEPLOY_HOOK_WEB_STAGING }}
+    steps:
+      - name: Staging deploys from develop
+        run: |
+          if [ "${{ github.ref }}" != "refs/heads/develop" ]; then
+            echo "::error::staging deploys from develop — this run is on ${{ github.ref }}."
+            exit 1
+          fi
+
+      - name: Trigger the Render deploy
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::no RENDER_DEPLOY_HOOK_WEB_STAGING secret — nothing to deploy."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null
+          echo "Triggered the Render deploy of the web app."
+
+      - name: Wait until the site serves this commit
+        env:
+          BASE: ${{ vars.WEB_STAGING_BASE_URL }}
+          EXPECT: ${{ github.sha }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::notice::no deploy was triggered, nothing to wait for."
+            exit 0
+          fi
+          if [ -z "$BASE" ]; then
+            echo "::error::a deploy was triggered but WEB_STAGING_BASE_URL is not set — it cannot be verified."
+            exit 1
+          fi
+          deadline=$((SECONDS + 900))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            got=$(curl -fsS --max-time 30 "$BASE/version.txt" 2> /dev/null | tr -d '[:space:]' || true)
+            if [ "$got" = "$EXPECT" ]; then
+              echo "The site serves $EXPECT."
+              exit 0
+            fi
+            echo "the site reports '${got:-nothing}', waiting for $EXPECT…"
+            sleep 15
+          done
+          echo "::error::the site did not report $EXPECT within 15 minutes — check the deploy in Render's dashboard."
           exit 1

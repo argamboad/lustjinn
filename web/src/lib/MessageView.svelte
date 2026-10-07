@@ -76,13 +76,13 @@
 
 <style>
 	.msg {
-		max-width: min(92%, 680px);
-		padding: 12px 14px;
+		max-width: min(96%, 720px);
+		padding: 9px 12px;
 		border-radius: var(--r-l);
 		background: var(--them);
 		border: 1px solid var(--line);
 		border-bottom-left-radius: 8px;
-		justify-self: start;
+		align-self: flex-start;
 		position: relative;
 		user-select: text;
 		-webkit-touch-callout: none;
@@ -92,7 +92,7 @@
 		border-color: var(--you-line);
 		border-bottom-left-radius: var(--r-l);
 		border-bottom-right-radius: 8px;
-		justify-self: end;
+		align-self: flex-end;
 	}
 	.streaming::after {
 		content: '';
@@ -119,7 +119,7 @@
 		flex-wrap: wrap;
 		gap: 8px;
 		align-items: center;
-		margin-top: 8px;
+		margin-top: 5px;
 		font-size: 0.7rem;
 		color: var(--muted);
 	}

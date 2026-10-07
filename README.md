@@ -22,6 +22,18 @@ uv run python scripts/seed_dummy.py         # optional: a dummy character and pe
 uv run uvicorn lustjinn.main:app --reload   # http://127.0.0.1:8000/health, /docs
 ```
 
+The web app lives in `web/` (SvelteKit 5, static, installable as a PWA). With the API running and
+`LUSTJINN_CORS_ORIGINS=["http://localhost:5173"]` in `.env`:
+
+```
+cd web
+npm ci                                      # once
+npm run dev                                 # http://localhost:5173 — sign in with the API's user
+```
+
+Its gates are `npm run lint`, `npm run check`, `npm test` and `npm run build`. It follows the
+system theme and remembers a switch; add it to a phone's home screen to install it.
+
 Sign in with `POST /auth/sign-in`; every other endpoint needs the token it returns. On `/docs`,
 press **Authorize** and paste it.
 

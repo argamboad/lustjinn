@@ -11,7 +11,10 @@ export default defineConfig({
 					filename.split(/[/\\]/).includes('node_modules') ? undefined : true
 			},
 			// A single-page app: index.html answers every path, so /story/<id> opens on a reload.
-			adapter: adapter({ fallback: 'index.html' })
+			adapter: adapter({ fallback: 'index.html' }),
+			// Registered by the layout, and only in a production build: a service worker in the dev
+			// server serves stale shells and 503s once the server has been restarted.
+			serviceWorker: { register: false }
 		})
 	],
 	test: {
