@@ -1,22 +1,34 @@
 """Lustjinn in the terminal: the Textual app, which is airp's ``Shell``.
 
-The app owns the screen stack (``push_screen`` / ``pop_screen``), the one theme and the few keys
-that work on every screen. ``Esc`` pops a screen and quits from the last one; ``?``/``F1`` opens
-the help once, never twice; ``Ctrl+C`` quits at once, as the donor's shell did.
+The app owns the screen stack (``push_screen`` / ``pop_screen``), the one theme, the API client
+and the few keys that work on every screen. ``Esc`` pops a screen and quits from the last one;
+``?``/``F1`` opens the help once, never twice; ``Ctrl+C`` quits at once, as the donor's shell did.
+
+Before anything else the app knocks on the server (``WakingScreen``) and, without a token, asks
+the reader to sign in (``SignInScreen``). A call that meets a ``401`` later sends them back to
+sign in with a note saying why; one that cannot reach the server sends them back to the lamp.
 """
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Awaitable
 from typing import ClassVar
 
 from textual.app import App
 from textual.binding import Binding, BindingType
 from textual.screen import Screen
 
+from lustjinn_tui import config as configuration
+from lustjinn_tui.api import Api, ApiError, SignedOutError, UnreachableError
+from lustjinn_tui.config import Config, TokenStore
 from lustjinn_tui.help import HelpScreen
+from lustjinn_tui.signin import SignInScreen
+from lustjinn_tui.status import Kind
 from lustjinn_tui.stories import StoriesScreen
 from lustjinn_tui.theme import DARK, NAME
 from lustjinn_tui.view import View
+from lustjinn_tui.waking import WakingScreen
 
 
 class LustjinnApp(App[None]):
@@ -28,15 +40,75 @@ class LustjinnApp(App[None]):
         Binding("ctrl+q", "quit", "Quit", show=False, priority=True),
     ]
 
-    def __init__(self, *, badge: str = "Local", model_name: str = "") -> None:
+    def __init__(
+        self,
+        config: Config,
+        api: Api,
+        *,
+        wake_waits: tuple[float, ...] = WakingScreen.WAITS,
+    ) -> None:
         super().__init__()
-        self.badge = badge
-        self.model_name = model_name
+        self.config = config
+        self.api = api
+        self.badge = config.badge
+        self.model_name = ""
+        self.wake_waits = wake_waits
         self.register_theme(DARK)
         self.theme = NAME
 
     def get_default_screen(self) -> Screen[None]:
         return StoriesScreen()
+
+    def on_mount(self) -> None:
+        self.push_screen(WakingScreen())
+
+    async def on_unmount(self) -> None:
+        await self.api.aclose()
+
+    # -- the gate -----------------------------------------------------------------------------
+
+    def woke(self) -> None:
+        """The server answered: on to the stories, or to sign in first."""
+        if isinstance(self.screen, WakingScreen):
+            self.pop_screen()
+        if not self.api.signed_in:
+            self.push_screen(SignInScreen())
+
+    def signed_in(self) -> None:
+        if isinstance(self.screen, SignInScreen):
+            self.pop_screen()
+
+    def lost(self, note: str) -> None:
+        """The server stopped answering: back to the lamp, unless it is already showing."""
+        if not isinstance(self.screen, WakingScreen):
+            self.push_screen(WakingScreen(note))
+
+    def signed_out(self, note: str) -> None:
+        """A 401 anywhere: forget the token and ask again, saying why."""
+        self.api.sign_out()
+        if not isinstance(self.screen, SignInScreen):
+            self.push_screen(SignInScreen(note))
+
+    async def call[T](self, label: str, work: Awaitable[T]) -> T | None:
+        """Run ``work`` behind the spinner (the donor's ``Run``). A refusal becomes a status in
+        red, a 401 the sign-in screen, an unreachable server the lamp; those return ``None``."""
+        screen = self.screen
+        line = screen.status_line if isinstance(screen, View) else None
+        if line is not None:
+            line.busy(label)
+        try:
+            return await work
+        except SignedOutError as refused:
+            self.signed_out(refused.detail)
+        except UnreachableError:
+            self.lost(f"The server stopped answering while {label.lower()}.")
+        except ApiError as refused:
+            if isinstance(screen, View):
+                screen.status(refused.detail, Kind.ERROR)
+        finally:
+            if line is not None:
+                line.idle()
+        return None
 
     # -- the stack ----------------------------------------------------------------------------
 
@@ -58,7 +130,14 @@ class LustjinnApp(App[None]):
 
 
 def main() -> None:
-    LustjinnApp().run()
+    parser = argparse.ArgumentParser(prog="lustjinn-tui", description="Lustjinn in the terminal.")
+    parser.add_argument("--server", help=f"the API's URL (default: {configuration.DEFAULT_SERVER})")
+    args = parser.parse_args()
+    directory = configuration.config_dir()
+    configuration.write_default(directory / "config.toml")
+    config = configuration.load(directory / "config.toml", server=args.server)
+    api = Api(config.server, TokenStore(directory / "token"))
+    LustjinnApp(config, api).run()
 
 
 if __name__ == "__main__":

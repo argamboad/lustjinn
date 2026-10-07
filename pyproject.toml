@@ -42,7 +42,7 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "tui/tests"]
-pythonpath = ["."]  # so tests can share helpers as `tests.factories`
+pythonpath = [".", "tui/tests"]  # tests share helpers as `tests.factories` / `tui_support`
 # pytest-asyncio: `async def` tests and fixtures run without a marker, all on one event loop —
 # the session-wide database engine belongs to that loop.
 asyncio_mode = "auto"
@@ -71,6 +71,10 @@ select = [
     "ASYNC",    # blocking calls inside async functions — they freeze the event loop
     "PT",       # pytest style
 ]
+
+[tool.ruff.lint.isort]
+# Both packages and the test helpers are ours: isort groups them after the third-party imports.
+known-first-party = ["lustjinn", "lustjinn_tui", "tests", "tui_support"]
 
 [tool.pyright]
 include = ["src", "tests", "scripts", "tui"]
