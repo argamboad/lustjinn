@@ -124,7 +124,20 @@ SECTIONS: Final[tuple[Section, ...]] = (
         "Model and dials",
         (
             Row("↑ ↓  /  ← →", "Choose a setting / change its level"),
-            Row("Enter", "Apply to the story"),
+            Row("Del", "Back to the pack's default"),
+            Row("Enter", "Apply the staged changes to the story"),
+            Row("Esc", "Discard the staged changes; then back"),
+        ),
+    ),
+    Section(
+        "Library",
+        (
+            Row("← →  /  Tab", "Shelf: characters, personas, snippets"),
+            Row("Enter  /  O", "Edit the text / a character's opening, in your editor"),
+            Row("N  /  F2", "New entry / rename"),
+            Row("D", "Make the persona the default (again to clear)"),
+            Row("Del", "Remove, after confirming"),
+            Row("PgUp PgDn", "Read the text"),
         ),
     ),
 )

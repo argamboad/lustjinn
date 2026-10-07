@@ -47,6 +47,15 @@ class UnreachableError(Exception):
     """No answer at all: the server is asleep, down, or the network is."""
 
 
+class ConflictError(ApiError):
+    """A 409 on a library save that carries the entry as it is now, so a screen can show both
+    texts and let the reader decide instead of losing either."""
+
+    def __init__(self, detail: str, current: EntryFull) -> None:
+        super().__init__(409, detail)
+        self.current = current
+
+
 # -- shapes ------------------------------------------------------------------------------------
 
 
@@ -230,6 +239,61 @@ class Spec(BaseModel):
     needs_argument: bool = True
 
 
+class DialLevel(BaseModel):
+    label: str
+    text: str | None = None
+    value: float | None = None
+    description: str | None = None
+
+
+class DialOption(BaseModel):
+    key: str
+    label: str
+    text: str
+
+
+DialKind = Literal["scale", "toggle", "choice", "list", "text"]
+
+
+class Dial(BaseModel):
+    """One dial of the pack, with the text each level or option sends."""
+
+    key: str
+    kind: DialKind
+    lever: str = "prompt"
+    maps: str | None = None
+    enabled: bool = True
+    default: str | None = None
+    title: str
+    help: str = ""
+    levels: list[DialLevel] = Field(default_factory=list[DialLevel])
+    options: list[DialOption] = Field(default_factory=list[DialOption])
+    on_text: str | None = None
+    template: str | None = None
+    accepts: str | None = None
+    examples: list[str] = Field(default_factory=list[str])
+
+
+class StoryDial(BaseModel):
+    """One dial as it stands for one story."""
+
+    key: str
+    title: str
+    kind: DialKind
+    enabled: bool = True
+    stored: str | None = None
+    effective: str | None = None
+    label: str | None = None
+
+
+class StoryModel(BaseModel):
+    model: str | None = None
+    """The story's own model; None means the default."""
+    context: int | None = None
+    default: str
+    message: str | None = None
+
+
 class Choice(BaseModel):
     """A model to pick, with the provider's list prices beside it — to compare by only."""
 
@@ -302,6 +366,8 @@ _stories = TypeAdapter(list[Story])
 _entries = TypeAdapter(list[Entry])
 _choices = TypeAdapter(list[Choice])
 _facts = TypeAdapter(list[Fact])
+_dials = TypeAdapter(list[Dial])
+_story_dials = TypeAdapter(list[StoryDial])
 _trackers = TypeAdapter(list[Tracker])
 _specs = TypeAdapter(list[Spec])
 _done = TypeAdapter[TurnDone | AsideDone | Said | Failed](Done)
@@ -365,6 +431,10 @@ class Api:
         if status == 401:
             self._tokens.forget()
             raise SignedOutError(status, detail)
+        if status == 409:
+            current = _current(response)
+            if current is not None:
+                raise ConflictError(detail, current)
         raise ApiError(status, detail)
 
     async def _stream(self, method: str, path: str, json: object | None) -> AsyncIterator[Event]:
@@ -494,6 +564,71 @@ class Api:
     async def defaults(self) -> Defaults:
         return Defaults.model_validate(await self._request("GET", "/library/settings"))
 
+    async def set_default_persona(self, persona_id: uuid.UUID | None) -> Defaults:
+        body = {"default_persona_id": None if persona_id is None else str(persona_id)}
+        return Defaults.model_validate(await self._request("PUT", "/library/settings", json=body))
+
+    async def create_entry(
+        self, shelf: Shelf, name: str, text: str, opening: str | None = None
+    ) -> EntryFull:
+        body: dict[str, object] = {"name": name, "text": text}
+        if opening is not None:
+            body["opening"] = opening
+        return EntryFull.model_validate(await self._request("POST", f"/library/{shelf}", json=body))
+
+    async def save_entry(
+        self,
+        shelf: Shelf,
+        entry_id: uuid.UUID,
+        version: int,
+        *,
+        name: str | None = None,
+        text: str | None = None,
+        opening: str | None = None,
+        clear_opening: bool = False,
+    ) -> EntryFull:
+        """Saves what is given over ``version``; a save over a newer one raises
+        ``ConflictError`` with the entry as it is now."""
+        body: dict[str, object] = {"version": version}
+        if name is not None:
+            body["name"] = name
+        if text is not None:
+            body["text"] = text
+        if opening is not None or clear_opening:
+            body["opening"] = opening
+        return EntryFull.model_validate(
+            await self._request("PATCH", f"/library/{shelf}/{entry_id}", json=body)
+        )
+
+    async def delete_entry(self, shelf: Shelf, entry_id: uuid.UUID) -> None:
+        await self._request("DELETE", f"/library/{shelf}/{entry_id}")
+
+    # -- dials and the story's model ------------------------------------------------------------
+
+    async def dial_pack(self) -> list[Dial]:
+        return _dials.validate_python(await self._request("GET", "/dials"))
+
+    async def story_dials(self, story_id: uuid.UUID) -> list[StoryDial]:
+        return _story_dials.validate_python(
+            await self._request("GET", f"/stories/{story_id}/dials")
+        )
+
+    async def set_dial(self, story_id: uuid.UUID, key: str, value: str) -> StoryDial:
+        return StoryDial.model_validate(
+            await self._request("PUT", f"/stories/{story_id}/dials/{key}", json={"value": value})
+        )
+
+    async def clear_dial(self, story_id: uuid.UUID, key: str) -> None:
+        await self._request("DELETE", f"/stories/{story_id}/dials/{key}")
+
+    async def story_model(self, story_id: uuid.UUID) -> StoryModel:
+        return StoryModel.model_validate(await self._request("GET", f"/stories/{story_id}/model"))
+
+    async def set_model(self, story_id: uuid.UUID, model: str | None) -> StoryModel:
+        return StoryModel.model_validate(
+            await self._request("PUT", f"/stories/{story_id}/model", json={"model": model})
+        )
+
     # -- models -------------------------------------------------------------------------------
 
     async def models(self) -> list[Choice]:
@@ -519,6 +654,26 @@ class Api:
         return self._stream("POST", f"/stories/{story_id}/reroll", body)
 
 
+def _current(response: httpx2.Response) -> EntryFull | None:
+    """The entry a library 409 carries, when it carries one."""
+    try:
+        body: object = response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    detail = cast(dict[str, object], body).get("detail")
+    if not isinstance(detail, dict):
+        return None
+    current = cast(dict[str, object], detail).get("current")
+    if not isinstance(current, dict):
+        return None
+    try:
+        return EntryFull.model_validate(current)
+    except ValueError:
+        return None
+
+
 def _detail(response: httpx2.Response) -> str:
     """The API's sentence, from FastAPI's ``{"detail": …}``; the status text when there is none."""
     try:
@@ -530,6 +685,10 @@ def _detail(response: httpx2.Response) -> str:
         detail = typed.get("detail")
         if isinstance(detail, str):
             return detail
+        if isinstance(detail, dict):  # a refusal with more than a sentence: the sentence
+            message = cast(dict[str, object], detail).get("message")
+            if isinstance(message, str):
+                return message
         if isinstance(detail, list):  # a validation error: one line per field
             items = cast(list[object], detail)
             parts = [

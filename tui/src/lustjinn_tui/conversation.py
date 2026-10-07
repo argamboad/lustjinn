@@ -51,8 +51,10 @@ from lustjinn_tui.composer import Caption, Composer
 from lustjinn_tui.confirm import ConfirmScreen
 from lustjinn_tui.hairline import Hairline
 from lustjinn_tui.legend import Hint
+from lustjinn_tui.masthead import Masthead
 from lustjinn_tui.panes import AskScreen, TextPaneScreen
 from lustjinn_tui.regenerate import RegenerateScreen
+from lustjinn_tui.settings import ChatSettingsScreen
 from lustjinn_tui.status import Kind
 from lustjinn_tui.textfmt import fit
 from lustjinn_tui.transcript import Transcript
@@ -71,6 +73,7 @@ class ConversationScreen(View):
         Hint("/", "Search"),
         Hint(">", "Carry on"),
         Hint("G", "Regenerate reply"),
+        Hint("S", "Settings"),
         Hint("B", "Branch from here"),
         Hint("Del", "Delete from here"),
         Hint("C", "Copy"),
@@ -101,6 +104,7 @@ class ConversationScreen(View):
         Binding("N", "match(-1)", "Previous match", show=False),
         Binding("greater_than_sign", "carry_on", "Carry on", show=False),
         Binding("g,G", "regenerate", "Regenerate", show=False),
+        Binding("s,S", "settings", "Settings", show=False),
         Binding("b,B", "branch", "Branch", show=False),
         Binding("delete", "delete_from", "Delete from here", show=False),
         Binding("c,C", "copy", "Copy", show=False),
@@ -207,6 +211,8 @@ class ConversationScreen(View):
             return
         self.story = read
         self.title = read.name
+        self.lustjinn.model_name = read.model or ""
+        self.query_one(Masthead).set_model(self.lustjinn.model_name)
         self.messages = read.messages
         self.transcript.show(self.messages, land=True)
         if read.persona_name is None:
@@ -517,6 +523,17 @@ class ConversationScreen(View):
             )
             return
         self.lustjinn.push_screen(RegenerateScreen(last, self.regenerate))
+
+    def action_settings(self) -> None:
+        if self._mode != "read":
+            return
+        self.lustjinn.push_screen(ChatSettingsScreen(self.story, self._model_changed))
+
+    def _model_changed(self, model: str | None) -> None:
+        """The settings changed the story's model: the masthead says so from now on."""
+        self.story = self.story.model_copy(update={"model": model})
+        self.lustjinn.model_name = model or ""
+        self.query_one(Masthead).set_model(self.lustjinn.model_name)
 
     def regenerate(self, reason: str, instructions: str | None) -> None:
         replacing = self.messages[-1].id

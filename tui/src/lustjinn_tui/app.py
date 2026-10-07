@@ -22,6 +22,7 @@ from textual.screen import Screen
 from lustjinn_tui import config as configuration
 from lustjinn_tui.api import Api, ApiError, SignedOutError, UnreachableError
 from lustjinn_tui.config import Config, TokenStore
+from lustjinn_tui.editor import Editor, edit_in_editor
 from lustjinn_tui.help import HelpScreen
 from lustjinn_tui.signin import SignInScreen
 from lustjinn_tui.status import Kind
@@ -53,6 +54,7 @@ class LustjinnApp(App[None]):
         self.badge = config.badge
         self.model_name = ""
         self.wake_waits = wake_waits
+        self.editor: Editor = edit_in_editor  # the tests hand in one that needs no terminal
         self.register_theme(DARK)
         self.theme = NAME
 

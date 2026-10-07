@@ -111,6 +111,106 @@ class FakeServer:
             choice("mistralai/mistral-small", ratio="0.50"),
         ]
         self.models_unreadable = False
+        self.pack: list[dict[str, Any]] = [
+            {
+                "key": "lust",
+                "kind": "scale",
+                "lever": "prompt",
+                "maps": None,
+                "enabled": True,
+                "default": None,
+                "title": "Lust",
+                "help": "The story's current arousal level — heat only. Pace lives in pacing.",
+                "levels": [
+                    {"label": "Cold", "text": "detached", "value": None, "description": None},
+                    {"label": "Friendly", "text": "warm", "value": None, "description": None},
+                    {"label": "Flirty", "text": "playful", "value": None, "description": None},
+                    {"label": "Explicit", "text": "forward", "value": None, "description": None},
+                    {"label": "Unhinged", "text": "no limits", "value": None, "description": None},
+                ],
+                "options": [],
+                "on_text": None,
+                "template": None,
+                "accepts": None,
+                "examples": [],
+            },
+            {
+                "key": "inner-thoughts",
+                "kind": "toggle",
+                "lever": "prompt",
+                "maps": None,
+                "enabled": True,
+                "default": "false",
+                "title": "Inner thoughts",
+                "help": "Whether the character's thoughts are written in italics.",
+                "levels": [],
+                "options": [],
+                "on_text": "show thoughts",
+                "template": None,
+                "accepts": None,
+                "examples": [],
+            },
+            {
+                "key": "pov",
+                "kind": "choice",
+                "lever": "prompt",
+                "maps": None,
+                "enabled": True,
+                "default": None,
+                "title": "Point of view",
+                "help": "Narrative person and tense. Unset follows the card.",
+                "levels": [],
+                "options": [
+                    {
+                        "key": "second-present",
+                        "label": "Second person, present",
+                        "text": "second, present",
+                    },
+                    {"key": "third-past", "label": "Third limited, past", "text": "third, past"},
+                ],
+                "on_text": None,
+                "template": None,
+                "accepts": None,
+                "examples": [],
+            },
+            {
+                "key": "language",
+                "kind": "text",
+                "lever": "prompt",
+                "maps": None,
+                "enabled": True,
+                "default": None,
+                "title": "Language",
+                "help": "The language the replies are written in.",
+                "levels": [],
+                "options": [],
+                "on_text": None,
+                "template": "Write in {value}.",
+                "accepts": "a language",
+                "examples": ["Spanish"],
+            },
+            {
+                "key": "agency-guard",
+                "kind": "scale",
+                "lever": "prompt",
+                "maps": None,
+                "enabled": False,
+                "default": None,
+                "title": "Agency guard",
+                "help": "Disabled in the pack.",
+                "levels": [
+                    {"label": f"L{i}", "text": None, "value": None, "description": None}
+                    for i in range(5)
+                ],
+                "options": [],
+                "on_text": None,
+                "template": None,
+                "accepts": None,
+                "examples": [],
+            },
+        ]
+        self.dial_values: dict[str, dict[str, str]] = {}  # story id -> key -> value
+        self.story_models: dict[str, str | None] = {}
         self.requests: list[httpx2.Request] = []
         self.reply = "She looks up. *A pause.*"
         self.reply_pieces = 3
@@ -236,6 +336,8 @@ class FakeServer:
             return httpx2.Response(200, json=self.commands)
         if path == "/search":
             return self._search(request)
+        if path == "/dials":
+            return httpx2.Response(200, json=self.pack)
         if path == "/models":
             if self.models_unreadable:
                 return httpx2.Response(
@@ -297,6 +399,10 @@ class FakeServer:
             return httpx2.Response(
                 200, json=self.audits.get(found["id"], {"turns": [], "asides": []})
             )
+        if len(parts) >= 3 and parts[2] == "dials":
+            return self._dials(found, parts, request)
+        if len(parts) == 3 and parts[2] == "model":
+            return self._model(found, request)
         if len(parts) == 3 and parts[2] == "spend":
             cost, discarded = self.spend.get(found["id"], ("0", "0"))
             calls = sum(1 for m in found["messages"] if m["role"] == "assistant" and m["model"])
@@ -391,6 +497,14 @@ class FakeServer:
 
     def _library(self, parts: list[str], request: httpx2.Request) -> httpx2.Response:
         if parts[1:] == ["settings"]:
+            if request.method == "PUT":
+                body = json.loads(request.content)
+                wanted = body.get("default_persona_id")
+                self.default_persona = (
+                    None
+                    if wanted is None
+                    else next(p for p in self.library["personas"] if p["id"] == wanted)
+                )
             default = self.default_persona
             return httpx2.Response(
                 200,
@@ -402,18 +516,164 @@ class FakeServer:
         shelf = self.library.get(parts[1]) if len(parts) > 1 else None
         if shelf is None:
             return httpx2.Response(404, json={"detail": "There is no such shelf."})
+        kind = parts[1][:-1]
         if len(parts) == 2 and request.method == "GET":
             summaries = [
                 {k: v for k, v in e.items() if k not in {"text", "opening", "used_by"}}
                 for e in shelf
             ]
             return httpx2.Response(200, json=summaries)
+        if len(parts) == 2 and request.method == "POST":
+            body = json.loads(request.content)
+            if any(e["name"].lower() == body["name"].lower() for e in shelf):
+                return httpx2.Response(
+                    409,
+                    json={
+                        "detail": f"A {kind} called '{body['name']}' already exists. Edit it, "
+                        "or pick another name."
+                    },
+                )
+            created = self.shelve(parts[1], body["name"], body["text"], body.get("opening"))
+            return httpx2.Response(201, json=created)
         found = next((e for e in shelf if e["id"] == parts[2]), None) if len(parts) > 2 else None
         if found is None:
             return httpx2.Response(404, json={"detail": "There is no such entry."})
         if len(parts) == 3 and request.method == "GET":
+            users = [
+                s["name"]
+                for s in self.stories
+                if (parts[1] == "characters" and s["character_id"] == found["id"])
+                or (parts[1] == "personas" and s["persona_id"] == found["id"])
+            ]
+            return httpx2.Response(200, json={**found, "used_by": users})
+        if len(parts) == 3 and request.method == "PATCH":
+            body = json.loads(request.content)
+            if body["version"] != found["version"]:
+                return httpx2.Response(
+                    409,
+                    json={
+                        "detail": {
+                            "message": f"This {kind} changed somewhere else since you opened "
+                            "it. Nothing was saved. Here is what it says now; save again to "
+                            "replace it.",
+                            "current": found,
+                        }
+                    },
+                )
+            changed = False
+            for field in ("name", "text", "opening"):
+                if field in body and body[field] != found.get(field):
+                    found[field] = body[field]
+                    changed = True
+            if changed:
+                found["version"] += 1
+                found["preview"] = found["text"][:200]
             return httpx2.Response(200, json=found)
+        if len(parts) == 3 and request.method == "DELETE":
+            users = [
+                s["name"]
+                for s in self.stories
+                if (parts[1] == "characters" and s["character_id"] == found["id"])
+                or (parts[1] == "personas" and s["persona_id"] == found["id"])
+            ]
+            if users:
+                return httpx2.Response(
+                    409,
+                    json={
+                        "detail": f"This {kind} is used by {', '.join(users)}. It stays until "
+                        "they do not."
+                    },
+                )
+            shelf.remove(found)
+            return httpx2.Response(204)
         return httpx2.Response(404, json={"detail": f"Nothing answers {request.method} {parts}."})
+
+    def _dial_out(self, dial: dict[str, Any], values: dict[str, str]) -> dict[str, Any]:
+        stored = values.get(dial["key"])
+        effective = stored if dial["enabled"] and stored is not None else dial["default"]
+        label = None
+        if effective is not None:
+            if dial["kind"] == "scale":
+                label = dial["levels"][int(effective)]["label"]
+            elif dial["kind"] == "toggle":
+                label = "On" if effective == "true" else "Off"
+            elif dial["kind"] == "choice":
+                label = next(o["label"] for o in dial["options"] if o["key"] == effective)
+            else:
+                label = effective
+        return {
+            "key": dial["key"],
+            "title": dial["title"],
+            "kind": dial["kind"],
+            "enabled": dial["enabled"],
+            "stored": stored,
+            "effective": effective,
+            "label": label,
+        }
+
+    def _dials(
+        self, found: dict[str, Any], parts: list[str], request: httpx2.Request
+    ) -> httpx2.Response:
+        values = self.dial_values.setdefault(found["id"], {})
+        if len(parts) == 3 and request.method == "GET":
+            return httpx2.Response(200, json=[self._dial_out(d, values) for d in self.pack])
+        dial = (
+            next((d for d in self.pack if d["key"] == parts[3]), None) if len(parts) == 4 else None
+        )
+        if dial is None:
+            return httpx2.Response(404, json={"detail": "There is no such dial."})
+        if request.method == "DELETE":
+            values.pop(dial["key"], None)
+            return httpx2.Response(204)
+        if not dial["enabled"]:
+            return httpx2.Response(
+                409,
+                json={
+                    "detail": f"{dial['title']} is disabled in the pack, so it is pinned to "
+                    "its default."
+                },
+            )
+        value = str(json.loads(request.content)["value"]).strip()
+        accepted: str | None
+        if dial["kind"] == "scale":
+            accepted = value if value.isdigit() and int(value) < len(dial["levels"]) else None
+        elif dial["kind"] == "toggle":
+            accepted = value.lower() if value.lower() in {"true", "false"} else None
+        elif dial["kind"] == "choice":
+            accepted = value if any(o["key"] == value for o in dial["options"]) else None
+        else:
+            accepted = value or None
+        if accepted is None:
+            return httpx2.Response(422, json={"detail": f"{dial['title']} takes something else."})
+        values[dial["key"]] = accepted
+        return httpx2.Response(200, json=self._dial_out(dial, values))
+
+    def _model(self, found: dict[str, Any], request: httpx2.Request) -> httpx2.Response:
+        own = self.story_models.get(found["id"], found.get("model"))
+        if request.method == "PUT":
+            wanted = json.loads(request.content).get("model")
+            if not wanted or wanted.lower() == DEFAULT_MODEL:
+                own = None
+                message = f"This story uses the default, {DEFAULT_MODEL}."
+            elif wanted not in {m["id"] for m in self.models}:
+                return httpx2.Response(
+                    422,
+                    json={
+                        "detail": f"{wanted} is not available — the provider does not list it — "
+                        f"so it was not set. The story stays on {own or DEFAULT_MODEL}."
+                    },
+                )
+            else:
+                own = wanted
+                message = f"This story now uses {wanted}."
+            self.story_models[found["id"]] = own
+            found["model"] = own
+        else:
+            message = None
+        return httpx2.Response(
+            200,
+            json={"model": own, "context": 128000, "default": DEFAULT_MODEL, "message": message},
+        )
 
     def _search(self, request: httpx2.Request) -> httpx2.Response:
         query = request.url.params.get("q", "").lower()

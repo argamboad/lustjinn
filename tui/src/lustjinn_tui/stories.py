@@ -32,6 +32,7 @@ from lustjinn_tui.conversation import ConversationScreen
 from lustjinn_tui.fuzzy import rank
 from lustjinn_tui.hairline import Hairline
 from lustjinn_tui.legend import Hint
+from lustjinn_tui.library import LibraryScreen
 from lustjinn_tui.listing import Rows
 from lustjinn_tui.newstory import NewStoryScreen
 from lustjinn_tui.status import Kind
@@ -272,7 +273,8 @@ class StoriesScreen(View):
         self.lustjinn.push_screen(NewStoryScreen())
 
     def action_library(self) -> None:
-        self.status("The library is not here yet.")
+        if self._mode == "list":
+            self.lustjinn.push_screen(LibraryScreen())
 
     def action_refresh(self) -> None:
         self.run_worker(partial(self._load, "Refreshing"), exclusive=True)
