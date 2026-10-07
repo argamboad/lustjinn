@@ -71,6 +71,16 @@ SECTIONS: Final[tuple[Section, ...]] = (
         ),
     ),
     Section(
+        "New story",
+        (
+            Row("Tab  /  Enter", "Next field; Enter on the last one creates"),
+            Row("← →", "Pick the character, the persona, the model"),
+            Row("PgUp PgDn", "Read the card or the persona under the form"),
+            Row("Ctrl+S", "Create the story"),
+            Row("Esc", "Cancel; asks first if something was typed"),
+        ),
+    ),
+    Section(
         "Conversation",
         (
             Row("I  or  Enter", "Write a message"),

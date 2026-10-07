@@ -19,6 +19,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
+from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
 import httpx2
@@ -91,6 +92,55 @@ class StoryWithMessages(Story):
     messages: list[Message]
 
 
+Shelf = Literal["characters", "personas", "snippets"]
+
+
+class Entry(BaseModel):
+    """A library entry as a list shows it: the name and a taste of the text."""
+
+    id: uuid.UUID
+    name: str
+    hidden: bool = False
+    version: int
+    updated_at: datetime
+    preview: str
+
+
+class EntryFull(Entry):
+    text: str
+    opening: str | None = None
+    used_by: list[str] = Field(default_factory=list)
+
+
+class Defaults(BaseModel):
+    default_persona_id: uuid.UUID | None = None
+    default_persona_name: str | None = None
+
+
+class Choice(BaseModel):
+    """A model to pick, with the provider's list prices beside it — to compare by only."""
+
+    id: str
+    is_default: bool = False
+    listed: bool = True
+    context_length: int | None = None
+    prompt_per_million: Decimal | None = None
+    completion_per_million: Decimal | None = None
+    prompt_price_ratio: Decimal | None = None
+
+    def describe(self) -> str:
+        """``id`` with how its prompt price compares with the default's (``ModelInfo.Describe``
+        in the donor): ≥1.5× "≈N× the default", ≤0.67× "≈1/N of the default", else nothing."""
+        if self.is_default or self.prompt_price_ratio is None:
+            return self.id
+        ratio = self.prompt_price_ratio
+        if ratio >= Decimal("1.5"):
+            return f"{self.id}  ≈{ratio.quantize(Decimal(1))}× the default"
+        if ratio <= Decimal("0.67") and ratio > 0:
+            return f"{self.id}  ≈1/{(1 / ratio).quantize(Decimal(1))} of the default"
+        return f"{self.id}  about the default"
+
+
 class Aside(BaseModel):
     id: uuid.UUID
     sequence: int
@@ -136,6 +186,8 @@ Done = Annotated[TurnDone | AsideDone | Said | Failed, Field(discriminator="kind
 Event = Delta | TurnDone | AsideDone | Said | Failed
 
 _stories = TypeAdapter(list[Story])
+_entries = TypeAdapter(list[Entry])
+_choices = TypeAdapter(list[Choice])
 _done = TypeAdapter[TurnDone | AsideDone | Said | Failed](Done)
 
 
@@ -239,6 +291,45 @@ class Api:
 
     async def story(self, story_id: uuid.UUID) -> StoryWithMessages:
         return StoryWithMessages.model_validate(await self._request("GET", f"/stories/{story_id}"))
+
+    async def create_story(
+        self,
+        name: str,
+        character_id: uuid.UUID,
+        persona_id: uuid.UUID | None = None,
+        model: str | None = None,
+    ) -> StoryWithMessages:
+        body: dict[str, object] = {"name": name, "character_id": str(character_id)}
+        if persona_id is not None:
+            body["persona_id"] = str(persona_id)
+        if model is not None:
+            body["model"] = model
+        return StoryWithMessages.model_validate(await self._request("POST", "/stories", json=body))
+
+    async def rename_story(self, story_id: uuid.UUID, name: str) -> Story:
+        return Story.model_validate(
+            await self._request("PATCH", f"/stories/{story_id}", json={"name": name})
+        )
+
+    async def delete_story(self, story_id: uuid.UUID) -> None:
+        await self._request("DELETE", f"/stories/{story_id}")
+
+    # -- the library ---------------------------------------------------------------------------
+
+    async def entries(self, shelf: Shelf) -> list[Entry]:
+        return _entries.validate_python(await self._request("GET", f"/library/{shelf}"))
+
+    async def entry(self, shelf: Shelf, entry_id: uuid.UUID) -> EntryFull:
+        return EntryFull.model_validate(await self._request("GET", f"/library/{shelf}/{entry_id}"))
+
+    async def defaults(self) -> Defaults:
+        return Defaults.model_validate(await self._request("GET", "/library/settings"))
+
+    # -- models -------------------------------------------------------------------------------
+
+    async def models(self) -> list[Choice]:
+        """The default first, then the configured choices."""
+        return _choices.validate_python(await self._request("GET", "/models"))
 
     # -- turns: streamed --------------------------------------------------------------------
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx2
@@ -18,6 +18,7 @@ import httpx2
 TOKEN = "t0ken"
 USERNAME = "allan"
 PASSWORD = "secret"
+DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 
 
 def message(sequence: int, role: str, text: str) -> dict[str, Any]:
@@ -33,7 +34,16 @@ def message(sequence: int, role: str, text: str) -> dict[str, Any]:
     }
 
 
-def story(name: str, *texts: str, character: str = "Dummy") -> dict[str, Any]:
+def story(
+    name: str,
+    *texts: str,
+    character: str = "Dummy",
+    character_id: str | None = None,
+    persona_id: str | None = None,
+    persona: str | None = "Me",
+    model: str | None = None,
+    created_at: datetime | None = None,
+) -> dict[str, Any]:
     messages = [
         message(i + 1, "assistant" if i % 2 == 0 else "user", text) for i, text in enumerate(texts)
     ]
@@ -41,15 +51,41 @@ def story(name: str, *texts: str, character: str = "Dummy") -> dict[str, Any]:
     return {
         "id": str(uuid.uuid4()),
         "name": name,
-        "character_id": str(uuid.uuid4()),
+        "character_id": character_id or str(uuid.uuid4()),
         "character_name": character,
-        "persona_id": None,
-        "persona_name": "Me",
-        "model": None,
-        "created_at": datetime(2026, 10, 1, tzinfo=UTC).isoformat(),
+        "persona_id": persona_id,
+        "persona_name": persona,
+        "model": model,
+        "created_at": (created_at or datetime(2026, 10, 1, tzinfo=UTC)).isoformat(),
         "last_message_at": last["sent_at"] if last else None,
-        "last_message_preview": last["text"][:80] if last else None,
+        "last_message_preview": last["text"][:200] if last else None,
         "messages": messages,
+    }
+
+
+def entry(name: str, text: str, opening: str | None = None) -> dict[str, Any]:
+    return {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "hidden": False,
+        "version": 1,
+        "updated_at": datetime(2026, 10, 1, tzinfo=UTC).isoformat(),
+        "preview": text[:200],
+        "text": text,
+        "opening": opening,
+        "used_by": [],
+    }
+
+
+def choice(model: str, *, is_default: bool = False, ratio: str | None = None) -> dict[str, Any]:
+    return {
+        "id": model,
+        "is_default": is_default,
+        "listed": True,
+        "context_length": 128000,
+        "prompt_per_million": "0.1",
+        "completion_per_million": "0.3",
+        "prompt_price_ratio": ratio,
     }
 
 
@@ -63,15 +99,39 @@ class FakeServer:
         self.down = False  # every call fails, as if the network were gone
         self.valid_tokens: set[str] = {TOKEN}
         self.stories: list[dict[str, Any]] = []
+        self.library: dict[str, list[dict[str, Any]]] = {
+            "characters": [],
+            "personas": [],
+            "snippets": [],
+        }
+        self.default_persona: dict[str, Any] | None = None
+        self.models: list[dict[str, Any]] = [
+            choice(DEFAULT_MODEL, is_default=True),
+            choice("thedrummer/anubis-70b", ratio="2.00"),
+            choice("mistralai/mistral-small", ratio="0.50"),
+        ]
+        self.models_unreadable = False
         self.requests: list[httpx2.Request] = []
         self.reply = "She looks up. *A pause.*"
         self.reply_pieces = 3
 
     # -- scripting ------------------------------------------------------------------------------
 
-    def add(self, name: str, *texts: str) -> dict[str, Any]:
-        added = story(name, *texts)
+    def add(self, name: str, *texts: str, **fields: Any) -> dict[str, Any]:
+        """A story, newest first in the list as the API orders them."""
+        if "created_at" not in fields:
+            fields["created_at"] = datetime(2026, 10, 1, tzinfo=UTC) + timedelta(
+                hours=len(self.stories)
+            )
+        added = story(name, *texts, **fields)
         self.stories.append(added)
+        return added
+
+    def shelve(
+        self, shelf: str, name: str, text: str, opening: str | None = None
+    ) -> dict[str, Any]:
+        added = entry(name, text, opening)
+        self.library[shelf].append(added)
         return added
 
     def revoke(self) -> None:
@@ -79,6 +139,14 @@ class FakeServer:
 
     def transport(self) -> httpx2.MockTransport:
         return httpx2.MockTransport(self.handle)
+
+    def paths(self, method: str | None = None) -> list[str]:
+        """What was asked for, in order: ``["GET /stories", …]`` or the paths of one method."""
+        return [
+            f"{r.method} {r.url.path}" if method is None else r.url.path
+            for r in self.requests
+            if method is None or r.method == method
+        ]
 
     # -- the routes -------------------------------------------------------------------------
 
@@ -108,19 +176,110 @@ class FakeServer:
         token = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
         if token not in self.valid_tokens:
             return httpx2.Response(401, json={"detail": "The token is not valid. Sign in again."})
-        if path == "/stories" and request.method == "GET":
-            listed = [{k: v for k, v in s.items() if k != "messages"} for s in self.stories]
-            return httpx2.Response(200, json=listed)
         parts = path.strip("/").split("/")
-        if len(parts) >= 2 and parts[0] == "stories":
-            found = next((s for s in self.stories if s["id"] == parts[1]), None)
-            if found is None:
-                return httpx2.Response(404, json={"detail": "There is no such story."})
-            if len(parts) == 2 and request.method == "GET":
-                return httpx2.Response(200, json=found)
-            if len(parts) == 3 and parts[2] in {"send", "continue", "reroll"}:
-                return self._turn(found, request)
+        if parts[0] == "stories":
+            return self._stories(parts, request)
+        if parts[0] == "library":
+            return self._library(parts, request)
+        if path == "/models":
+            if self.models_unreadable:
+                return httpx2.Response(
+                    503, json={"detail": "The model list could not be read: timed out."}
+                )
+            return httpx2.Response(200, json=self.models)
         return httpx2.Response(404, json={"detail": f"Nothing answers {request.method} {path}."})
+
+    @staticmethod
+    def _listed(found: dict[str, Any]) -> dict[str, Any]:
+        return {k: v for k, v in found.items() if k != "messages"}
+
+    def _stories(self, parts: list[str], request: httpx2.Request) -> httpx2.Response:
+        if len(parts) == 1 and request.method == "GET":
+            ordered = sorted(
+                self.stories, key=lambda s: s["last_message_at"] or s["created_at"], reverse=True
+            )
+            return httpx2.Response(200, json=[self._listed(s) for s in ordered])
+        if len(parts) == 1 and request.method == "POST":
+            return self._create(json.loads(request.content))
+        found = next((s for s in self.stories if s["id"] == parts[1]), None)
+        if found is None:
+            return httpx2.Response(404, json={"detail": "There is no such story."})
+        if len(parts) == 2 and request.method == "GET":
+            return httpx2.Response(200, json=found)
+        if len(parts) == 2 and request.method == "PATCH":
+            body: dict[str, Any] = json.loads(request.content)
+            name = str(body.get("name", "")).strip()
+            if not name:
+                return httpx2.Response(422, json={"detail": "name: a name is needed"})
+            found["name"] = name
+            return httpx2.Response(200, json=self._listed(found))
+        if len(parts) == 2 and request.method == "DELETE":
+            self.stories.remove(found)
+            return httpx2.Response(204)
+        if len(parts) == 3 and parts[2] in {"send", "continue", "reroll"}:
+            return self._turn(found, request)
+        return httpx2.Response(404, json={"detail": f"Nothing answers {request.method} {parts}."})
+
+    def _create(self, body: dict[str, Any]) -> httpx2.Response:
+        character = next(
+            (c for c in self.library["characters"] if c["id"] == body.get("character_id")), None
+        )
+        if character is None:
+            return httpx2.Response(422, json={"detail": "There is no character with that id."})
+        persona = None
+        if body.get("persona_id"):
+            persona = next(
+                (p for p in self.library["personas"] if p["id"] == body["persona_id"]), None
+            )
+            if persona is None:
+                return httpx2.Response(422, json={"detail": "There is no persona with that id."})
+        model = body.get("model")
+        if model is not None and model not in {m["id"] for m in self.models}:
+            return httpx2.Response(
+                422,
+                json={
+                    "detail": f"{model} is not available — the provider does not list it — so "
+                    f"it was not set. The story stays on {DEFAULT_MODEL}."
+                },
+            )
+        texts = (character["opening"],) if character.get("opening") else ()
+        created = self.add(
+            str(body["name"]),
+            *texts,
+            character=character["name"],
+            character_id=character["id"],
+            persona_id=None if persona is None else persona["id"],
+            persona=None if persona is None else persona["name"],
+            model=model,
+            created_at=datetime(2026, 10, 7, 12, tzinfo=UTC),
+        )
+        return httpx2.Response(201, json=created)
+
+    def _library(self, parts: list[str], request: httpx2.Request) -> httpx2.Response:
+        if parts[1:] == ["settings"]:
+            default = self.default_persona
+            return httpx2.Response(
+                200,
+                json={
+                    "default_persona_id": None if default is None else default["id"],
+                    "default_persona_name": None if default is None else default["name"],
+                },
+            )
+        shelf = self.library.get(parts[1]) if len(parts) > 1 else None
+        if shelf is None:
+            return httpx2.Response(404, json={"detail": "There is no such shelf."})
+        if len(parts) == 2 and request.method == "GET":
+            summaries = [
+                {k: v for k, v in e.items() if k not in {"text", "opening", "used_by"}}
+                for e in shelf
+            ]
+            return httpx2.Response(200, json=summaries)
+        found = next((e for e in shelf if e["id"] == parts[2]), None) if len(parts) > 2 else None
+        if found is None:
+            return httpx2.Response(404, json={"detail": "There is no such entry."})
+        if len(parts) == 3 and request.method == "GET":
+            return httpx2.Response(200, json=found)
+        return httpx2.Response(404, json={"detail": f"Nothing answers {request.method} {parts}."})
 
     def _turn(self, found: dict[str, Any], request: httpx2.Request) -> httpx2.Response:
         body: dict[str, Any] = json.loads(request.content) if request.content else {}
@@ -130,6 +289,8 @@ class FakeServer:
             found["messages"].append(sent)
         reply = message(len(found["messages"]) + 1, "assistant", self.reply)
         found["messages"].append(reply)
+        found["last_message_at"] = reply["sent_at"]
+        found["last_message_preview"] = reply["text"][:200]
         return httpx2.Response(
             200,
             headers={"content-type": "text/event-stream"},

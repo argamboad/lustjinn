@@ -67,6 +67,14 @@ class LustjinnApp(App[None]):
 
     # -- the gate -----------------------------------------------------------------------------
 
+    @property
+    def gate_open(self) -> bool:
+        """Signed in, with neither the lamp nor the sign-in screen on the stack: the screens
+        may call the API."""
+        return self.api.signed_in and not any(
+            isinstance(s, WakingScreen | SignInScreen) for s in self.screen_stack
+        )
+
     def woke(self) -> None:
         """The server answered: on to the stories, or to sign in first."""
         if isinstance(self.screen, WakingScreen):
@@ -114,7 +122,7 @@ class LustjinnApp(App[None]):
 
     def crumbs(self) -> tuple[str, ...]:
         """The titles of the open views, bottom first."""
-        return tuple(s.TITLE for s in self.screen_stack if isinstance(s, View) and s.TITLE)
+        return tuple(s.title for s in self.screen_stack if isinstance(s, View) and s.title)
 
     def go_back(self) -> None:
         """One screen back; from the last one, out."""
