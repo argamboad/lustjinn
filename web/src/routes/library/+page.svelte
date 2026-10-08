@@ -75,7 +75,7 @@
 </script>
 
 <div class="screen">
-	<AppBar title="Library" mark>
+	<AppBar title="Library" mark sections>
 		{#snippet actions()}
 			<a class="btn primary small" href="/library/{shelf}/new">New {current.one}</a>
 		{/snippet}

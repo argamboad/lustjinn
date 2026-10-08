@@ -153,9 +153,8 @@
 </script>
 
 <div class="screen">
-	<AppBar title="Stories" {sub} mark>
+	<AppBar title="Stories" {sub} mark sections>
 		{#snippet actions()}
-			<a class="bar-link" href="/library">Library</a>
 			<a class="avatar" href="/you" aria-label="You">R</a>
 		{/snippet}
 	</AppBar>
@@ -268,19 +267,6 @@
 		height: 100%;
 		display: flex;
 		flex-direction: column;
-	}
-	.bar-link {
-		display: none;
-		text-decoration: none;
-		color: var(--fg-2);
-		font-weight: 500;
-		font-size: 0.9rem;
-		padding: 6px 10px;
-	}
-	@media (min-width: 900px) {
-		.bar-link {
-			display: inline-block;
-		}
 	}
 	.avatar {
 		width: 34px;
