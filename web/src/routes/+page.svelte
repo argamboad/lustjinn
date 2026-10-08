@@ -153,7 +153,7 @@
 </script>
 
 <div class="screen">
-	<AppBar title="Stories" {sub} mark sections>
+	<AppBar title="Stories" {sub} mark>
 		{#snippet actions()}
 			<a class="avatar" href="/you" aria-label="You">R</a>
 		{/snippet}
@@ -279,6 +279,12 @@
 		font-weight: 600;
 		font-size: 0.85rem;
 		text-decoration: none;
+	}
+	/* On a wide screen the section nav has You; the avatar is the phone's way there. */
+	@media (min-width: 900px) {
+		.avatar {
+			display: none;
+		}
 	}
 	.search {
 		margin: 10px 14px 8px;
