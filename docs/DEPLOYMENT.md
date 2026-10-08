@@ -66,7 +66,15 @@ and documented in `.env.example`; the names are the same, there is just no `.env
 | `LUSTJINN_CORS_ORIGINS` | `["https://lustjinn-web-staging.onrender.com"]` — the static site, as a JSON list (see below) |
 
 The optional ones (`LUSTJINN_MODEL`, `LUSTJINN_CONTEXT_BUDGET`, the provider lists…) keep their
-defaults unless set; `.env.example` lists them all with their defaults. `UV_VERSION` comes from the
+defaults unless set; `.env.example` lists them all with their defaults. Two of them are about
+exposure, and their defaults are the deployed ones, so leave them unset on Render:
+
+- `LUSTJINN_DOCS` — off: `/docs`, `/redoc` and `/openapi.json` answer 404. Only `.env` turns them
+  on, for development.
+- `LUSTJINN_SIGN_IN_ATTEMPTS`, `…_WINDOW_MINUTES`, `…_FAILURE_DELAY_SECONDS` — five wrong
+  sign-ins within fifteen minutes refuse sign-in with `429` and a `Retry-After` for the rest of the
+  window, even with the right password; each wrong one waits a second. The count lives in the
+  database (`sign_in_failures`), so a sleeping service does not forget it. `UV_VERSION` comes from the
 blueprint. After a change, the service restarts on its own; a deploy is not needed.
 
 ### 4. GitHub: secret and variable
@@ -122,5 +130,7 @@ Chrome offers it). It opens full-screen under the logo, and the shell opens offl
   or the start command failed, or the service is still starting.
 - **The service never starts** and the log ends at an import or a settings error — a variable from
   step 3 is missing or misspelt; `LUSTJINN_DATABASE_URL` in the pooled or `sslmode` form fails here.
+- **Sign-in answers 429** — five wrong passwords within fifteen minutes. Wait out the time the
+  message gives; the count clears itself, and a successful sign-in clears it at once.
 - **The service sleeps** after ~15 minutes without requests and takes ~30–60 s to wake. That is the
   free tier, not a failure.

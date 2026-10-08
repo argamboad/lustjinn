@@ -68,9 +68,26 @@ def _cors_origins(settings: Settings | None) -> list[str]:
         return []
 
 
+def _docs(settings: Settings | None) -> bool:
+    if settings is not None:
+        return settings.docs
+    try:
+        return get_settings().docs
+    except ValidationError:
+        return False  # incomplete settings: the safe answer is no map
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Builds the application. `settings` is for tests; normally they come from the environment."""
-    app = FastAPI(title="Lustjinn", lifespan=lifespan)
+    # The interactive docs and the schema behind them, only where `LUSTJINN_DOCS` asks (#84).
+    docs = _docs(settings)
+    app = FastAPI(
+        title="Lustjinn",
+        lifespan=lifespan,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
 
     # CORS: which browser origins may call this API. The token travels in a header, not a
     # cookie, so no credentials are allowed through.
