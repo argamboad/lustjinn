@@ -3,6 +3,7 @@ Python: a turn is a speaker line, wrapped prose, a blank and a rule; the cursor 
 first row; the viewport moves only when it loses the turn; the arrows read through a tall turn."""
 
 from collections.abc import Callable
+from datetime import UTC, datetime
 
 from textual.app import ComposeResult
 
@@ -35,7 +36,10 @@ def test_a_turn_is_a_speaker_line_the_wrapped_body_a_blank_and_a_rule() -> None:
         (1, "none"),
     ]
     assert rows[0].body.plain.startswith(" Elena ")
-    assert rows[0].body.plain.rstrip().endswith("09:01")  # the stamp at the far end
+    # The stamp at the far end, in the machine's own zone as the view draws it: the fake
+    # message was sent at 09:01 UTC, which is 03:01 on a laptop six hours behind.
+    local = datetime(2026, 10, 7, 9, 1, tzinfo=UTC).astimezone().strftime("%H:%M")
+    assert rows[0].body.plain.rstrip().endswith(local)
     assert rows[1].body.plain == "She looks up. Hello."  # the markers are gone
     assert rows[4].body.plain.startswith(" You ")
     assert len(rows[0].body.plain) == 40
