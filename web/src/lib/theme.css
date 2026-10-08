@@ -34,6 +34,8 @@
 	--font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
 	--r-s: 10px;
 	--r-m: 16px;
+	/* Every screen's frame on a wide display: one width, so the app bar is the same everywhere. */
+	--frame: 860px;
 	--r-l: 24px;
 	--r-pill: 999px;
 	--safe-top: env(safe-area-inset-top, 0px);
@@ -272,4 +274,21 @@ code,
 }
 .muted {
 	color: var(--muted);
+}
+
+/* The frame of every screen on a wide display. One width for all of them, so the app bar — and the
+   section nav at its end — sits in exactly the same place on every screen. A page keeps narrower
+   content inside it where it reads better (You's cards, the forms). */
+/* The scrollbar's lane is kept even on pages too short to scroll, so a page that scrolls does not
+   centre its frame a few pixels further left than one that does not. */
+html {
+	scrollbar-gutter: stable;
+}
+
+@media (min-width: 900px) {
+	.screen {
+		width: 100%;
+		max-width: var(--frame);
+		margin-inline: auto;
+	}
 }
