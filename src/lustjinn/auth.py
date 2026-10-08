@@ -4,8 +4,16 @@ The client signs in once with the username and password and receives a signed to
 sends the token back in the `Authorization: Bearer …` header of every request. Nothing is stored
 on the server: the signature proves the token is ours and the expiry inside it says until when.
 A header rather than a cookie because the web client and the API will live on different sites.
+
+Guessing is throttled (#84): every wrong sign-in is recorded with its time, and once
+`sign_in_attempts` of them fall within `sign_in_window_minutes`, sign-in is refused outright —
+even with the right password — until enough of them age out. The count is global, not per
+address: there is one user, and an attacker who changes address must not get a fresh allowance.
+A wrong password also waits `sign_in_failure_delay_seconds` before it is answered.
 """
 
+import asyncio
+import math
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
@@ -14,13 +22,18 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, SecretStr
+from sqlalchemy import delete, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from lustjinn.db import get_session
+from lustjinn.models import SignInFailure
 from lustjinn.settings import Settings, get_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 ALGORITHM = "HS256"  # one secret both signs and verifies; only this server ever does either
 CurrentSettings = Annotated[Settings, Depends(get_settings)]
+Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 class Credentials(BaseModel):
@@ -70,16 +83,52 @@ def _refuse(why: str) -> HTTPException:
     return HTTPException(status.HTTP_401_UNAUTHORIZED, why, {"WWW-Authenticate": "Bearer"})
 
 
+async def _locked_for(session: AsyncSession, settings: Settings, now: datetime) -> int | None:
+    """Seconds until sign-in opens again, or None when it is open. Locked while the window holds
+    `sign_in_attempts` failures; it opens when enough of them have aged out."""
+    window = timedelta(minutes=settings.sign_in_window_minutes)
+    recent = select(SignInFailure.at).where(SignInFailure.at > now - window)
+    count = await session.scalar(select(func.count()).select_from(recent.subquery()))
+    if not count or count < settings.sign_in_attempts:
+        return None
+    # The failure whose ageing-out brings the count below the limit.
+    opening = await session.scalar(
+        recent.order_by(SignInFailure.at).offset(count - settings.sign_in_attempts).limit(1)
+    )
+    assert opening is not None
+    return max(1, math.ceil((opening + window - now).total_seconds()))
+
+
+def _minutes(seconds: int) -> str:
+    minutes = math.ceil(seconds / 60)
+    return "a minute" if minutes == 1 else f"{minutes} minutes"
+
+
 @router.post("/sign-in")
-async def sign_in(credentials: Credentials, settings: CurrentSettings) -> Token:
+async def sign_in(credentials: Credentials, settings: CurrentSettings, session: Session) -> Token:
     """Exchanges the username and password for a bearer token."""
+    now = datetime.now(UTC)
+    locked = await _locked_for(session, settings, now)
+    if locked is not None:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            f"Too many failed sign-ins. Try again in {_minutes(locked)}.",
+            {"Retry-After": str(locked)},
+        )
     # Both are checked before deciding, and the answer never says which one was wrong.
     name_matches = _same(credentials.username, settings.username)
     password_matches = _same(
         credentials.password.get_secret_value(), settings.password.get_secret_value()
     )
     if not (name_matches and password_matches):
+        window = timedelta(minutes=settings.sign_in_window_minutes)
+        session.add(SignInFailure(at=now))
+        await session.execute(delete(SignInFailure).where(SignInFailure.at <= now - window))
+        await session.commit()
+        await asyncio.sleep(settings.sign_in_failure_delay_seconds)
         raise _refuse("Wrong username or password.")
+    await session.execute(delete(SignInFailure))
+    await session.commit()
     return issue_token(settings)
 
 

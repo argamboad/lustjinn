@@ -35,7 +35,10 @@ Its gates are `npm run lint`, `npm run check`, `npm test` and `npm run build`. I
 system theme and remembers a switch; add it to a phone's home screen to install it.
 
 Sign in with `POST /auth/sign-in`; every other endpoint needs the token it returns. On `/docs`,
-press **Authorize** and paste it.
+press **Authorize** and paste it. The docs are served only when `LUSTJINN_DOCS=true` (it is, in
+`.env.example`); a deployed API leaves them off. Five wrong sign-ins within fifteen minutes lock
+sign-in for the rest of the window, even with the right password, and each wrong one is answered
+a second late.
 
 Playing needs an OpenRouter key in `.env` (`LUSTJINN_OPENROUTER_API_KEY`). `POST /stories/{id}/send`
 takes what the reader typed and streams the reply back as server-sent events. The slash commands

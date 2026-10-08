@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     cors_origins: list[str] = []
     """Origins allowed to call the API from a browser, as a JSON list. Empty allows none."""
 
+    docs: bool = False
+    """Whether `/docs`, `/redoc` and `/openapi.json` are served. Off unless asked for: a deployed
+    API has no reason to publish its own map. Development turns it on in `.env`."""
+
+    sign_in_attempts: int = Field(default=5, ge=1, le=100)
+    """Failed sign-ins allowed within the window before sign-in is refused outright."""
+
+    sign_in_window_minutes: int = Field(default=15, ge=1, le=24 * 60)
+    """How far back failed sign-ins are counted, and so how long a lockout lasts."""
+
+    sign_in_failure_delay_seconds: float = Field(default=1.0, ge=0, le=10)
+    """How long a wrong password waits before it is answered, so guessing is slow."""
+
     # The model. Every call goes to one OpenAI-compatible endpoint, OpenRouter by default; a
     # different provider that speaks the same shape is a change of URL and key.
     openrouter_api_key: SecretStr | None = None

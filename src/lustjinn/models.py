@@ -429,3 +429,14 @@ class Fact(Base):
     pinned: Mapped[bool] = mapped_column(Boolean, server_default="false")
     """A person said so; the extractor cannot retire it. A person can."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class SignInFailure(Base):
+    """A wrong username or password, when it happened. Counted to throttle guessing; pruned as it
+    ages out of the window, and cleared by a successful sign-in. Kept in the database rather than
+    in memory because the free service sleeps, and a counter in memory would wake up empty."""
+
+    __tablename__ = "sign_in_failures"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=new_id)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

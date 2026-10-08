@@ -102,6 +102,7 @@ def settings(database_url: str) -> Settings:
         password=SecretStr("correct horse battery staple"),
         token_secret=SecretStr("a-test-secret-that-is-long-enough-to-pass"),
         openrouter_api_key=SecretStr("sk-or-test"),
+        sign_in_failure_delay_seconds=0,  # the throttle's own tests ask for the wait
         _env_file=None,  # pyright: ignore[reportCallIssue] — a real argument, hidden from the checker
     )
 
