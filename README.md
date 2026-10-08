@@ -32,7 +32,27 @@ npm run dev                                 # http://localhost:5173 — sign in 
 ```
 
 Its gates are `npm run lint`, `npm run check`, `npm test` and `npm run build`. It follows the
-system theme and remembers a switch; add it to a phone's home screen to install it.
+system theme and remembers a switch; add it to a phone's home screen to install it. With
+`API_PROXY=<url>` the dev server forwards the app's calls to that API itself, so the API's CORS
+list never has to name localhost.
+
+**VS Code:** *Run and Debug* (Ctrl+Shift+D) offers *Web · local API*, *Web · staging API*,
+*Terminal · local API*, *Terminal · staging API* and *Test · this file*; breakpoints work in
+`.py`, `.ts` and `.svelte` files. The web entries go through `API_PROXY`.
+
+The terminal client (`tui/`) runs from the repo with `uv run lustjinn-tui [--server URL]`, or as
+an installed command that stays as it is until you update it:
+
+```
+./scripts/install-tui.ps1                   # runs its tests, installs or updates `lustjinn-tui`
+lustjinn-tui --server https://lustjinn-staging.onrender.com
+```
+
+Its settings are `%LOCALAPPDATA%\lustjinn\config.toml` (written on first run, commented), its token
+sits beside it, and `installed.txt` says which commit the command was built from. It trusts the
+public certificate authorities only, never the machine's own store, so a proxy that decrypts HTTPS
+(a company's iBoss, say) is refused and named rather than trusted; `proxy = "none"` in the config
+connects directly instead of through `HTTPS_PROXY`.
 
 Sign in with `POST /auth/sign-in`; every other endpoint needs the token it returns. On `/docs`,
 press **Authorize** and paste it. The docs are served only when `LUSTJINN_DOCS=true` (it is, in

@@ -31,3 +31,7 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+# Secrets for other environments, e.g. .env.staging for `uv run --env-file .env.staging …`.
+.env.*
+!.env.example
+!.env.*.example
