@@ -55,6 +55,24 @@ sketch, the lessons airp paid for, and the roadmap.
   `uv run lustjinn-tui` opens it; its tests are `tui/tests/` and run with the root `uv run pytest`,
   headless, through Textual's pilot. One dark theme, `tui/src/lustjinn_tui/theme.py`: every colour
   is a role there, reached as a theme variable (`$muted`); no view names a colour of its own.
+  A debugger starts it as `python -m lustjinn_tui`, never `-m lustjinn_tui.app` (a second copy of
+  the module; the screens' `isinstance` checks fail). `./scripts/install-tui.ps1` installs or
+  updates the owner's `lustjinn-tui` command (tests first, a frozen `uv tool` copy); the owner runs
+  it when they judge the code safe.
+- **Debugging is in `.vscode/launch.json`** (Web · local/staging API, Terminal · local/staging API,
+  Test · this file). The web entries set `API_PROXY`: the dev server forwards `/api-proxy` to that
+  API, so no API's CORS list names localhost. Pass only URLs through the environment — Git Bash
+  rewrites a value starting with `/` into a Windows path.
+- **Staging from the laptop:** its secrets live in `.env.staging` (gitignored; the shape is in
+  `.env.staging.example`), used as `uv run --env-file .env.staging <command>`. **Migrate Neon
+  (`uv run --env-file .env.staging alembic upgrade head`) before any deploy whose code needs the
+  migration**, or staging fails on the first request that touches the new schema. Never hand the
+  owner a command with a secret in it, inline or behind a masked prompt: point at the file.
+- **On this Windows checkout** git writes CRLF, so `npm run lint` flags files it did not change;
+  check with `npx prettier --check --end-of-line auto .` locally (CI on Linux is clean).
+- **Never change the checkout under the owner:** no branch switch, stash or `uv run` in this folder
+  while they run something from it (a test run there shares the `.venv`). Test in a worktree or
+  wait until they say done.
 
 ## Workflow
 - **One PR per roadmap step, one commit per issue.** Branch `step/N-…` from `develop`; each issue of
