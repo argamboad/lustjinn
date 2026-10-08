@@ -478,10 +478,4 @@
 		background: var(--danger);
 		color: #fff;
 	}
-	@media (min-width: 900px) {
-		.screen {
-			max-width: 860px;
-			margin: 0 auto;
-		}
-	}
 </style>

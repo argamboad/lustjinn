@@ -88,9 +88,12 @@
 				>
 			{/each}
 		</div>
-		<label class="hidden-toggle">
+		<label
+			class="hidden-toggle"
+			title="Entries whose name starts with _ (a template, working notes) are kept but not listed"
+		>
 			<input type="checkbox" bind:checked={hidden} onchange={load} />
-			<span>Show hidden</span>
+			<span>Show hidden <code>_name</code></span>
 		</label>
 	</div>
 	<main class="list">
@@ -282,11 +285,5 @@
 		font-size: 0.78rem;
 		padding: 8px;
 		min-height: 36px;
-	}
-	@media (min-width: 900px) {
-		.screen {
-			max-width: 760px;
-			margin: 0 auto;
-		}
 	}
 </style>

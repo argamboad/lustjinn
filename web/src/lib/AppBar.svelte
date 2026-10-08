@@ -26,8 +26,8 @@
 		{#if sub}<span class="sub">{sub}</span>{/if}
 	</div>
 	<div class="grow"></div>
-	<SectionNav />
 	{#if actions}{@render actions()}{/if}
+	<SectionNav />
 </header>
 
 <style>
@@ -76,5 +76,12 @@
 	}
 	.grow {
 		flex: 1;
+	}
+	/* On a wide screen every bar is as tall as the tallest (a title with a second line), so the section
+	   nav sits at the same height everywhere. Phones keep their compact bars. */
+	@media (min-width: 900px) {
+		.bar {
+			min-height: 62px;
+		}
 	}
 </style>

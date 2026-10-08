@@ -473,13 +473,9 @@
 		z-index: 5;
 	}
 	@media (min-width: 900px) {
-		.screen {
-			max-width: 760px;
-			margin: 0 auto;
-		}
 		.fab {
 			bottom: 26px;
-			right: calc(50% - 380px + 18px);
+			right: calc(50% - var(--frame) / 2 + 18px);
 		}
 	}
 </style>
