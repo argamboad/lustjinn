@@ -23,7 +23,7 @@ from textual.screen import Screen
 from textual.widgets import Input, TextArea
 
 from lustjinn_tui import config as configuration
-from lustjinn_tui.api import Api, ApiError, SignedOutError, UnreachableError
+from lustjinn_tui.api import Api, ApiError, InterceptedError, SignedOutError, UnreachableError
 from lustjinn_tui.config import Config, TokenStore
 from lustjinn_tui.dialect import Dialect, dialect_of
 from lustjinn_tui.editor import Editor, edit_in_editor
@@ -125,6 +125,8 @@ class LustjinnApp(App[None]):
             return await work
         except SignedOutError as refused:
             self.signed_out(refused.detail)
+        except InterceptedError as intercepted:
+            self.lost(str(intercepted))
         except UnreachableError:
             self.lost(f"The server stopped answering while {label.lower()}.")
         except ApiError as refused:
@@ -182,6 +184,5 @@ def main() -> None:
     directory = configuration.config_dir()
     configuration.write_default(directory / "config.toml")
     config = configuration.load(directory / "config.toml", server=args.server)
-    api = Api(config.server, TokenStore(directory / "token"))
+    api = Api(config.server, TokenStore(directory / "token"), direct=config.proxy == "none")
     LustjinnApp(config, api).run()
-

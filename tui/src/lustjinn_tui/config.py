@@ -40,6 +40,7 @@ class Config:
     transcript_width_percent: int = 60  # clamped to 30-100 when used
     mouse: bool = False
     export_directory: str = "exports"  # relative paths resolve against the config directory
+    proxy: str = "system"  # or "none": connect directly, whatever HTTPS_PROXY says
 
     @property
     def badge(self) -> str:
@@ -71,6 +72,11 @@ mouse = {mouse}
 
 # Where exports are written; a relative path is under this file's directory.
 export_directory = "{export_directory}"
+
+# "system" goes the way the machine's proxy settings say (HTTPS_PROXY); "none" connects straight
+# to the server. Either way the server's certificate must come from a public authority, so a
+# proxy that decrypts HTTPS is refused rather than trusted.
+proxy = "{proxy}"
 """
 
 
@@ -87,6 +93,7 @@ def write_default(path: Path) -> None:
             transcript_width_percent=defaults.transcript_width_percent,
             mouse="true" if defaults.mouse else "false",
             export_directory=defaults.export_directory,
+            proxy=defaults.proxy,
         ),
         encoding="utf-8",
     )
@@ -105,6 +112,7 @@ def load(path: Path, *, server: str | None = None, environ: dict[str, str] | Non
             ),
             mouse=bool(read.get("mouse", config.mouse)),
             export_directory=str(read.get("export_directory", config.export_directory)),
+            proxy="none" if str(read.get("proxy", config.proxy)).lower() == "none" else "system",
         )
     env = os.environ if environ is None else environ
     if env.get(SERVER_VARIABLE):

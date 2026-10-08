@@ -17,12 +17,14 @@ them.
 from __future__ import annotations
 
 import re
+import ssl
 import uuid
 from collections.abc import AsyncIterator
 from datetime import datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal, cast
 
+import certifi
 import httpx2
 from pydantic import BaseModel, Field, TypeAdapter
 
@@ -46,6 +48,34 @@ class SignedOutError(ApiError):
 
 class UnreachableError(Exception):
     """No answer at all: the server is asleep, down, or the network is."""
+
+
+class InterceptedError(UnreachableError):
+    """Something on the way answered for the server with a certificate no public authority
+    issued — what a TLS-inspecting proxy (iBoss and the like) presents. Nothing was sent."""
+
+
+def public_trust() -> ssl.SSLContext:
+    """Certificates are checked against the public authorities only (Mozilla's list, through
+    certifi), never the machine's own store. A proxy whose root certificate was installed on the
+    machine so it can read HTTPS cannot pass for the server: the connection is refused instead."""
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def _failed_to_connect(error: httpx2.TransportError, server: str) -> UnreachableError:
+    """An unreachable server, unless the handshake was refused for its certificate."""
+    seen: BaseException | None = error
+    while seen is not None:
+        if isinstance(seen, ssl.SSLCertVerificationError) or "CERTIFICATE_VERIFY_FAILED" in str(
+            seen
+        ):
+            return InterceptedError(
+                f"The connection to {server} was intercepted: it answered with a certificate no "
+                "public authority issued, as a TLS-inspecting proxy does. Nothing was sent. "
+                'With proxy = "none" in config.toml the client connects directly.'
+            )
+        seen = seen.__cause__ or seen.__context__
+    return UnreachableError(str(error))
 
 
 class ConflictError(ApiError):
@@ -392,13 +422,18 @@ class Api:
         server: str,
         tokens: TokenStore,
         *,
+        direct: bool = False,
         transport: httpx2.AsyncBaseTransport | None = None,
     ) -> None:
+        """``direct`` ignores the machine's proxy settings (``HTTPS_PROXY`` and the rest) and
+        connects straight to the server; otherwise the client goes the way the system says."""
         self.server = server
         self._tokens = tokens
         self._client = httpx2.AsyncClient(
             base_url=server,
             transport=transport,
+            verify=public_trust(),
+            trust_env=not direct,
             timeout=httpx2.Timeout(30.0, read=180.0),  # a reply can take its time
         )
 
@@ -428,7 +463,7 @@ class Api:
                 method, path, json=json, params=params, headers=self._headers()
             )
         except httpx2.TransportError as error:
-            raise UnreachableError(str(error)) from error
+            raise _failed_to_connect(error, self.server) from error
         self._check(response.status_code, response)
         if response.status_code == 204 or not response.content:
             return None
@@ -461,7 +496,7 @@ class Api:
                     elif event.event in {"done", "error"}:
                         yield _done.validate_json(event.data)
         except httpx2.TransportError as error:
-            raise UnreachableError(str(error)) from error
+            raise _failed_to_connect(error, self.server) from error
 
     # -- open to anyone ---------------------------------------------------------------------
 
@@ -573,7 +608,7 @@ class Api:
                 headers=self._headers(),
             )
         except httpx2.TransportError as error:
-            raise UnreachableError(str(error)) from error
+            raise _failed_to_connect(error, self.server) from error
         self._check(response.status_code, response)
         disposition = response.headers.get("content-disposition", "")
         found = re.search(r'filename="([^"]+)"', disposition)

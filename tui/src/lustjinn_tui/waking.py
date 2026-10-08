@@ -14,7 +14,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding, BindingType
 from textual.widgets import Static
 
-from lustjinn_tui.api import UnreachableError
+from lustjinn_tui.api import InterceptedError, UnreachableError
 from lustjinn_tui.legend import Hint
 from lustjinn_tui.view import View
 
@@ -41,6 +41,7 @@ class WakingScreen(View):
         self._note = note
         self._elapsed = 0.0
         self._attempts = 0
+        self._intercepted = False
         self._now = asyncio.Event()
 
     def body(self) -> ComposeResult:
@@ -64,6 +65,10 @@ class WakingScreen(View):
             self._attempts += 1
             try:
                 await self.lustjinn.api.health()
+            except InterceptedError as intercepted:
+                self._intercepted = True
+                self.query_one("#lamp", Static).update("The connection was intercepted.")
+                self.query_one("#why", Static).update(str(intercepted))
             except UnreachableError:
                 pass
             else:
@@ -79,7 +84,7 @@ class WakingScreen(View):
             self._show_elapsed()
 
     def _show_elapsed(self) -> None:
-        if self._elapsed >= self.PLAINER_AFTER:
+        if self._elapsed >= self.PLAINER_AFTER and not self._intercepted:
             self.query_one("#lamp", Static).update("The server has not answered.")
             self.query_one("#why", Static).update(
                 "It may be down rather than asleep. Enter tries again now; Q leaves it for later."

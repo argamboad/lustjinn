@@ -1,3 +1,5 @@
+import { Agent } from 'node:https';
+import { rootCertificates } from 'node:tls';
 import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 import adapter from '@sveltejs/adapter-static';
@@ -20,6 +22,11 @@ export default defineConfig(({ mode }) => {
 						[PROXY_PREFIX]: {
 							target,
 							changeOrigin: true,
+							// The public authorities only (Node's own list), never the machine's store: a proxy that
+							// decrypts HTTPS with a root certificate installed on this machine is refused.
+							agent: target.startsWith('https:')
+								? new Agent({ ca: [...rootCertificates] })
+								: undefined,
 							rewrite: (path: string) => path.slice(PROXY_PREFIX.length)
 						}
 					}
