@@ -2,7 +2,8 @@
 
 The API runs on **Render's free tier** as a native Python web service, built from this repository
 on GitHub. GitHub Actions drives every deploy; nothing deploys on a push. Today there is one environment,
-**staging**, from `develop`. Production from `main` is tracked in the *Later* milestone.
+**staging**, from `develop`, on Render with its database on Neon. Production from `main` is tracked
+in the *Later* milestone.
 
 ## How a deploy runs
 
@@ -27,9 +28,48 @@ on Render's `$PORT`, health check `/health`, automatic deploys off.
 3. Note the service URL (`https://….onrender.com`).
 4. Service → **Settings → Deploy Hook**: copy the URL. It contains a key — treat it as a password.
 
-Creating the service runs a first build from `develop`.
+Creating the service runs a first build from `develop`. It will fail to start until the
+environment below is set: the service has no database and no credentials yet.
 
-### 2. GitHub: secret and variable
+### 2. Neon: the database
+
+The free tier has no disk; the data lives in a **Neon** Postgres (17, with pgvector). Create a
+project there and take its **direct** connection string, never the pooled one (the pooler does not
+carry what SQLAlchemy's asyncpg driver needs). Rewrite it for the driver:
+
+- `postgresql://` becomes `postgresql+asyncpg://`;
+- the query string becomes `?ssl=require` — drop `sslmode` and `channel_binding`, asyncpg does not
+  know them.
+
+The migrations do not run on deploy; run them from the laptop, with the variable pointing at Neon
+for the one command (PowerShell; the shell forgets it afterwards):
+
+```powershell
+$env:LUSTJINN_DATABASE_URL = "postgresql+asyncpg://…?ssl=require"; uv run alembic upgrade head
+```
+
+Migration 0008 creates the `vector` extension itself. The same trick seeds the dummy character and
+persona for a first turn: `uv run python scripts/seed_dummy.py`. A schema change later means the
+same command again, before the deploy that needs it.
+
+### 3. Render: the API's environment
+
+Render → `lustjinn-staging` → **Environment**. Every variable is read by `src/lustjinn/settings.py`
+and documented in `.env.example`; the names are the same, there is just no `.env` in the cloud.
+
+| Variable | Value |
+|---|---|
+| `LUSTJINN_DATABASE_URL` | the Neon string from step 2, in asyncpg form |
+| `LUSTJINN_USERNAME`, `LUSTJINN_PASSWORD` | the one user who can sign in |
+| `LUSTJINN_TOKEN_SECRET` | at least 32 characters: `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"`. Changing it signs every device out |
+| `LUSTJINN_OPENROUTER_API_KEY` | from https://openrouter.ai/keys; without it the app starts and every turn fails |
+| `LUSTJINN_CORS_ORIGINS` | `["https://lustjinn-web-staging.onrender.com"]` — the static site, as a JSON list (see below) |
+
+The optional ones (`LUSTJINN_MODEL`, `LUSTJINN_CONTEXT_BUDGET`, the provider lists…) keep their
+defaults unless set; `.env.example` lists them all with their defaults. `UV_VERSION` comes from the
+blueprint. After a change, the service restarts on its own; a deploy is not needed.
+
+### 4. GitHub: secret and variable
 
 GitHub → `argamboad/lustjinn` → **Settings → Secrets and variables → Actions**.
 
@@ -80,5 +120,7 @@ Chrome offers it). It opens full-screen under the logo, and the shell opens offl
 
 - **"did not report … within 15 minutes"** — read the deploy's log in Render's dashboard; the build
   or the start command failed, or the service is still starting.
+- **The service never starts** and the log ends at an import or a settings error — a variable from
+  step 3 is missing or misspelt; `LUSTJINN_DATABASE_URL` in the pooled or `sslmode` form fails here.
 - **The service sleeps** after ~15 minutes without requests and takes ~30–60 s to wake. That is the
   free tier, not a failure.
