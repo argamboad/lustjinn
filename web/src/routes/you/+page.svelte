@@ -8,7 +8,7 @@
 </script>
 
 <div class="screen">
-	<AppBar title="You" mark sections />
+	<AppBar title="You" mark />
 	<main>
 		<section class="card">
 			<h2>Theme</h2>

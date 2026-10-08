@@ -1,22 +1,24 @@
 <script lang="ts">
 	import { page } from '$app/state';
 
-	/** The top-level sections in the app bar, for a wide screen: there the bottom tabs are
-	 * hidden, and without this a reader on Library or You has only the browser's back button. */
+	/** The top-level sections in the app bar of every screen, on a wide screen: there the bottom
+	 * tabs are hidden, and this is what takes the reader anywhere. The section lit is the one the
+	 * screen belongs to — a story and its dials are Stories, the editor is Library. */
 	const sections = [
-		{ href: '/', label: 'Stories' },
-		{ href: '/library', label: 'Library' },
-		{ href: '/you', label: 'You' }
+		{ href: '/', label: 'Stories', owns: ['/', '/new', '/story'] },
+		{ href: '/library', label: 'Library', owns: ['/library'] },
+		{ href: '/you', label: 'You', owns: ['/you'] }
 	];
 
-	function current(href: string): boolean {
-		return href === '/' ? page.url.pathname === '/' : page.url.pathname.startsWith(href);
+	function current(owns: string[]): boolean {
+		const path = page.url.pathname;
+		return owns.some((p) => (p === '/' ? path === '/' : path === p || path.startsWith(p + '/')));
 	}
 </script>
 
 <nav class="sections" aria-label="Sections">
 	{#each sections as s (s.href)}
-		<a href={s.href} class:on={current(s.href)} aria-current={current(s.href) ? 'page' : undefined}
+		<a href={s.href} class:on={current(s.owns)} aria-current={current(s.owns) ? 'page' : undefined}
 			>{s.label}</a
 		>
 	{/each}
