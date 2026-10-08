@@ -39,14 +39,18 @@ async def test_a_stored_reply_says_what_it_was_built_from(
     assert reply.prompt_tokens == 10  # what the scripted provider reported, kept beside it
 
 
-async def test_the_estimate_is_within_reach_of_a_real_providers_figure(
+async def test_the_estimate_is_the_counters_figure_for_the_prompt_as_sent(
     client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
 ) -> None:
-    """The one real turn played so far (2026-10-06): DeepSeek reported 2,755 prompt tokens for
-    the card, the persona, the opening and a two-sentence message. The counter said 3,163 — 15%
-    high, because o200k_base is OpenAI's vocabulary and DeepSeek has its own. High is the safe
-    side: a prompt the counter thinks is at the budget is under it. The margin is pinned here
-    so a change that widens it is noticed; closing it is a calibration issue of its own."""
+    """What the audit stores beside the provider's figure is the counter's own, for exactly the
+    messages that went out — no margin, no correction.
+
+    Calibration (#94, 2026-10-08): over the 14 real turns played so far on DeepSeek V4 Flash
+    (2,755 to 5,368 prompt tokens) the stored estimate was within 0.2% of the figure OpenRouter
+    reported, every time. OpenRouter reports token counts normalised to a GPT vocabulary, which is
+    what o200k_base is; the model's native count can differ, and the spend is read from
+    `usage.cost`, which the provider works out natively. The "15% high" once recorded here
+    compared this fixture's prompt with a real turn's bill — two different prompts."""
     story = await a_played_story(session)
     model.says("Hm.", prompt_tokens=2755)
 
@@ -64,8 +68,9 @@ async def test_the_estimate_is_within_reach_of_a_real_providers_figure(
         .order_by(Message.sequence.desc())
     )
     assert reply is not None
-    assert reply.estimated_prompt_tokens is not None
-    assert 2755 <= reply.estimated_prompt_tokens <= 2755 * 1.2
+    sent = model.calls[-1]["messages"]
+    assert reply.estimated_prompt_tokens == sum(tokens.for_message(m["content"]) for m in sent)
+    assert reply.prompt_tokens == 2755  # the provider's figure, kept beside it, never mixed in
 
 
 async def test_a_question_carries_its_audit_too(
