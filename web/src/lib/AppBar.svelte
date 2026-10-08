@@ -1,16 +1,26 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import Lamp from '#lib/Lamp.svelte';
+	import SectionNav from '#lib/SectionNav.svelte';
 
 	/** The bar at the top of a screen: a back arrow or the mark, a title with a line under it,
-	 * and whatever actions the screen puts on the right. */
+	 * the top-level sections on a wide screen (`sections`, for the screens the tabs reach), and
+	 * whatever actions the screen puts on the right. */
 	let {
 		title,
 		sub,
 		back,
 		mark = false,
+		sections = false,
 		actions
-	}: { title: string; sub?: string; back?: string; mark?: boolean; actions?: Snippet } = $props();
+	}: {
+		title: string;
+		sub?: string;
+		back?: string;
+		mark?: boolean;
+		sections?: boolean;
+		actions?: Snippet;
+	} = $props();
 </script>
 
 <header class="bar">
@@ -24,6 +34,7 @@
 		{#if sub}<span class="sub">{sub}</span>{/if}
 	</div>
 	<div class="grow"></div>
+	{#if sections}<SectionNav />{/if}
 	{#if actions}{@render actions()}{/if}
 </header>
 
