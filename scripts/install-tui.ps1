@@ -13,6 +13,20 @@ param([switch]$SkipTests)
 $ErrorActionPreference = 'Stop'
 Set-Location (Resolve-Path "$PSScriptRoot\..")
 
+# A terminal opened before uv joined the PATH (VS Code keeps the PATH it started with) cannot see
+# it: read the PATH as Windows has it saved now, for this script only.
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    $saved = @(
+        [Environment]::GetEnvironmentVariable('Path', 'Machine'),
+        [Environment]::GetEnvironmentVariable('Path', 'User'),
+        $env:Path
+    ) -join ';'
+    $env:Path = $saved
+}
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    throw 'uv is not installed: winget install astral-sh.uv, then open a new terminal.'
+}
+
 $commit = (git rev-parse --short HEAD).Trim()
 $branch = (git branch --show-current).Trim()
 $changed = git status --porcelain -- tui
