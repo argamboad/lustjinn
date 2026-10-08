@@ -41,16 +41,19 @@ carry what SQLAlchemy's asyncpg driver needs). Rewrite it for the driver:
 - the query string becomes `?ssl=require` — drop `sslmode` and `channel_binding`, asyncpg does not
   know them.
 
-The migrations do not run on deploy; run them from the laptop, with the variable pointing at Neon
-for the one command (PowerShell; the shell forgets it afterwards):
+The string lives in a file on the laptop, never in a command: copy `.env.staging.example` to
+`.env.staging` (gitignored, like every `.env.*` but the examples) and put it there. Anything run
+with `uv run --env-file .env.staging` reads it, over `.env`; everything else still comes from
+`.env`. The migrations do not run on deploy, so run them from the laptop:
 
-```powershell
-$env:LUSTJINN_DATABASE_URL = "postgresql+asyncpg://…?ssl=require"; uv run alembic upgrade head
+```
+uv run --env-file .env.staging alembic upgrade head
 ```
 
-Migration 0008 creates the `vector` extension itself. The same trick seeds the dummy character and
-persona for a first turn: `uv run python scripts/seed_dummy.py`. A schema change later means the
-same command again, before the deploy that needs it.
+Migration 0008 creates the `vector` extension itself. The same way seeds the dummy character and
+persona for a first turn: `uv run --env-file .env.staging python scripts/seed_dummy.py`. **A schema
+change means this command again, before the deploy that needs it** — a deploy whose code expects a
+table Neon does not have yet fails on the first request that touches it.
 
 ### 3. Render: the API's environment
 

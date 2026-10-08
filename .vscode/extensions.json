@@ -1,0 +1,11 @@
+{
+  // VS Code offers these when the folder opens: Python and its debugger, the type checker the
+  // gates use (Pylance runs pyright), ruff for lint and format, and Svelte for the web app.
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.debugpy",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "svelte.svelte-vscode"
+  ]
+}

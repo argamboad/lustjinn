@@ -1,0 +1,97 @@
+{
+  // Run and Debug (Ctrl+Shift+D): pick what to run, press F5. Breakpoints work in .py, .ts and
+  // .svelte files. "Local" needs Postgres up (`docker compose up -d`) and reads `.env`. The web
+  // entries reach the API through the dev server (`API_PROXY`, see web/vite.config.ts), so no
+  // API needs localhost in its CORS list.
+  "version": "0.2.0",
+  "compounds": [
+    {
+      "name": "Web · local API",
+      "configurations": ["api", "web-dev-local", "web-browser"],
+      "stopAll": true,
+      "presentation": { "group": "1-web", "order": 1 }
+    },
+    {
+      "name": "Web · staging API",
+      "configurations": ["web-dev-staging", "web-browser"],
+      "stopAll": true,
+      "presentation": { "group": "1-web", "order": 2 }
+    },
+    {
+      "name": "Terminal · local API",
+      "configurations": ["api", "terminal-local"],
+      "stopAll": true,
+      "presentation": { "group": "2-terminal", "order": 1 }
+    }
+  ],
+  "configurations": [
+    {
+      "name": "Terminal · staging API",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "lustjinn_tui",
+      "args": ["--server", "https://lustjinn-staging.onrender.com"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "presentation": { "group": "2-terminal", "order": 2 }
+    },
+    {
+      "name": "Test · this file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-q", "-p", "no:cacheprovider"],
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false,
+      "presentation": { "group": "3-test", "order": 1 }
+    },
+
+    // The building blocks the entries above start. Hidden from the list.
+    {
+      "name": "api",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      // No --reload: the debugger would not stop in the reloader's child. Ctrl+Shift+F5 restarts.
+      "args": ["lustjinn.main:app", "--port", "8000"],
+      "cwd": "${workspaceFolder}",
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "terminal-local",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "lustjinn_tui",
+      "args": ["--server", "http://127.0.0.1:8000"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "web-dev-local",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/web",
+      "env": { "API_PROXY": "http://127.0.0.1:8000" },
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "web-dev-staging",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder}/web",
+      "env": { "API_PROXY": "https://lustjinn-staging.onrender.com" },
+      "presentation": { "hidden": true }
+    },
+    {
+      "name": "web-browser",
+      "type": "msedge",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/web",
+      "presentation": { "hidden": true }
+    }
+  ]
+}

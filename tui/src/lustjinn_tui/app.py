@@ -185,6 +185,3 @@ def main() -> None:
     api = Api(config.server, TokenStore(directory / "token"))
     LustjinnApp(config, api).run()
 
-
-if __name__ == "__main__":
-    main()
