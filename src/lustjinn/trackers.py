@@ -15,12 +15,12 @@ import uuid
 from collections.abc import Sequence
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.models import Message, Tracker
 from lustjinn.stories import visible_story
 
@@ -174,7 +174,6 @@ def split_command(argument: str) -> tuple[str, float] | None:
 # --- the API --------------------------------------------------------------------------------------
 
 router = APIRouter(prefix="/stories/{story_id}/trackers", tags=["trackers"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
 Words = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=500)]

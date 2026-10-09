@@ -12,14 +12,13 @@ trigger itself insists on (migration 0002).
 
 import uuid
 from decimal import Decimal
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.models import (
     Aside,
     DialValue,
@@ -33,7 +32,6 @@ from lustjinn.models import (
 )
 
 router = APIRouter(prefix="/stories/{story_id}", tags=["editing"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 class Purged(BaseModel):

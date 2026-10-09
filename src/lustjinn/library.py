@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.orm.exc import StaleDataError
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.models import (
     AppSettings,
     Character,
@@ -34,7 +34,6 @@ from lustjinn.models import (
 )
 
 router = APIRouter(prefix="/library", tags=["library"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 PREVIEW_LENGTH = 200
 Slug = Literal["characters", "personas", "snippets"]

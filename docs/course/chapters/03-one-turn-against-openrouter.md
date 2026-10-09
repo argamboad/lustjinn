@@ -390,14 +390,17 @@ The endpoint returns a `StreamingResponse` wrapping an async generator; FastAPI 
 writes each string to the socket as it is produced. Two details:
 
 ```python
-Session = Annotated[AsyncSession, Depends(get_session, scope="request")]
+# src/lustjinn/deps.py
+StreamingSession = Annotated[AsyncSession, Depends(get_session, scope="request")]
 ```
 
 **`scope="request"`** keeps the session dependency open until the response has been sent. The
 default scope closes a `yield` dependency when the endpoint *function* returns — which, for a
 streaming response, is before the stream has run. The generator would find its session closed.
 This is one of the few places where FastAPI's model of a request differs from the pipeline you
-know, and it is worth remembering whenever a response outlives its handler.
+know, and it is worth remembering whenever a response outlives its handler. It has its own name
+for that reason: a streamed route asks for `session: StreamingSession`, and one that finishes
+before it returns asks for `session: Session`.
 
 The other is a header, `X-Accel-Buffering: no`, which tells a proxy in front (Render's, nginx)
 to pass each event on as it comes instead of collecting the body first.

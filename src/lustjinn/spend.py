@@ -14,19 +14,17 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.models import Message, Spend, SpendKind, Story
 from lustjinn.stories import visible_story
 
 router = APIRouter(tags=["spend"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 PURGED = "(purged)"
 """The name a story's rows report under once the story itself has been erased."""

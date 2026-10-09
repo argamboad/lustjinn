@@ -9,20 +9,19 @@ the ledger and the rebuild's calls are added beside them: the money was spent ei
 """
 
 import uuid
-from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from lustjinn import dials, memory, trackers
-from lustjinn.db import get_session
+from lustjinn.deps import CurrentSettings, Model, Session
 from lustjinn.library import default_persona
 from lustjinn.models import Fact, Message, Story, Summary
-from lustjinn.openrouter import OpenRouter, get_openrouter
-from lustjinn.settings import Settings, get_settings
+from lustjinn.openrouter import OpenRouter
+from lustjinn.settings import Settings
 from lustjinn.stories import visible_story
 
 MOST_PASSES = 200
@@ -143,9 +142,6 @@ async def rebuild(
 
 
 router = APIRouter(prefix="/stories/{story_id}/memory", tags=["memory"])
-Session = Annotated[AsyncSession, Depends(get_session)]
-Model = Annotated[OpenRouter, Depends(get_openrouter)]
-CurrentSettings = Annotated[Settings, Depends(get_settings)]
 
 
 @router.post("/rebuild")

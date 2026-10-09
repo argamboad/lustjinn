@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import func, select
@@ -32,21 +32,16 @@ from lustjinn import (
     snippets,
     trackers,
 )
-from lustjinn.db import get_session
+from lustjinn.deps import CurrentSettings, Model, StreamingSession
 from lustjinn.library import default_persona
 from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
-from lustjinn.openrouter import ModelError, OpenRouter, Reply, get_openrouter
-from lustjinn.settings import Settings, get_settings
+from lustjinn.openrouter import ModelError, OpenRouter, Reply
+from lustjinn.settings import Settings
 from lustjinn.sse import format_event
 from lustjinn.stories import MessageOut
 
 router = APIRouter(prefix="/stories", tags=["turns"])
 
-# scope="request": the session stays open until the response has been sent. The default would
-# close it when the endpoint function returns — before the stream below has run.
-Session = Annotated[AsyncSession, Depends(get_session, scope="request")]
-Model = Annotated[OpenRouter, Depends(get_openrouter)]
-CurrentSettings = Annotated[Settings, Depends(get_settings)]
 
 # How the stream is described on /docs: FastAPI cannot read it off a StreamingResponse.
 STREAMED: dict[int | str, dict[str, Any]] = {
@@ -550,7 +545,7 @@ async def set_tracker(session: AsyncSession, story: Story, argument: str) -> Asy
 async def send(
     story_id: uuid.UUID,
     body: Send,
-    session: Session,
+    session: StreamingSession,
     openrouter: Model,
     settings: CurrentSettings,
 ) -> StreamingResponse:
@@ -609,7 +604,7 @@ async def send(
 
 @router.post("/{story_id}/continue", responses=STREAMED)
 async def carry_on(
-    story_id: uuid.UUID, session: Session, openrouter: Model, settings: CurrentSettings
+    story_id: uuid.UUID, session: StreamingSession, openrouter: Model, settings: CurrentSettings
 ) -> StreamingResponse:
     """The model writes the next beat with nothing from the reader. Billed and stored as a
     reply like any other, so it can be rerolled like any other."""
@@ -620,7 +615,7 @@ async def carry_on(
 
 
 @router.get("/{story_id}/audit")
-async def audit(story_id: uuid.UUID, session: Session) -> Audit:
+async def audit(story_id: uuid.UUID, session: StreamingSession) -> Audit:
     """What the recent replies were built from, each estimate beside the provider's figure.
 
     Hidden replies — rerolled away — are listed and marked: "why did it say that" is asked of
@@ -671,7 +666,7 @@ async def audit(story_id: uuid.UUID, session: Session) -> Audit:
 
 
 @router.get("/{story_id}/asides")
-async def list_asides(story_id: uuid.UUID, session: Session) -> list[AsideOut]:
+async def list_asides(story_id: uuid.UUID, session: StreamingSession) -> list[AsideOut]:
     """The questions asked about a story, newest first."""
     await _playable(session, story_id)
     rows = await session.scalars(
@@ -685,7 +680,7 @@ async def list_asides(story_id: uuid.UUID, session: Session) -> list[AsideOut]:
 @router.post("/{story_id}/reroll", responses=STREAMED)
 async def reroll(
     story_id: uuid.UUID,
-    session: Session,
+    session: StreamingSession,
     openrouter: Model,
     settings: CurrentSettings,
     body: Reroll | None = None,

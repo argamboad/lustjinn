@@ -17,14 +17,14 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn import background, ledger
 from lustjinn.context import Fact as WorldFact
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.memory import transcript
 from lustjinn.models import Fact, Message, Persona, SpendKind, Story
 from lustjinn.openrouter import ChatMessage, OpenRouter, Reply
@@ -227,7 +227,6 @@ async def retire_by_hand(session: AsyncSession, fact: Fact) -> Fact:
 
 
 router = APIRouter(prefix="/stories/{story_id}/facts", tags=["facts"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 Words = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 Subject = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
