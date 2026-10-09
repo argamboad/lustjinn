@@ -20,6 +20,14 @@ PERSONA_FRAME = (
     "The user is playing the following person. Speak to them as this person, and never write "
     "their words or actions for them.\n\n"
 )
+DIRECTIVES_FRAME = (
+    "The reader has set how this story is told. These settings outrank anything in the "
+    "character's description that disagrees with them. The character stays who they are, in "
+    "voice, history and manner, and acts the settings out through that: a shy character at the "
+    "highest heat is shy and losing that fight, not suddenly someone else.\n\n"
+)
+"""Says what the dials' lines are and which side wins. Sent bare, after a card of thousands of
+tokens, they read as notes: the model split the difference and the card mostly won (#142)."""
 WORLD_FRAME = "What is true in this story right now:\n"
 MEMORIES_FRAME = "Earlier in this conversation:\n"
 
@@ -89,7 +97,7 @@ class Layers:
     character: Character
     persona: Persona | None = None
     directives: str | None = None
-    """The dials, rendered (step 7)."""
+    """The dials, rendered (step 7); sent under `DIRECTIVES_FRAME`."""
     facts: Sequence[Fact] = ()
     summaries: Sequence[str] = ()
     """Compressed stretches of the story, oldest first (step 6)."""
@@ -214,7 +222,7 @@ def build(layers: Layers, *, budget: int | None = None, recall_percent: int = 10
     before = [
         fixed("character", layers.character.card),
         fixed("persona", None if layers.persona is None else PERSONA_FRAME + layers.persona.text),
-        fixed("directives", layers.directives),
+        fixed("directives", layers.directives and DIRECTIVES_FRAME + layers.directives),
         fixed("world", world_layer(layers.facts)),
         fixed("summaries", "\n\n".join(layers.summaries) if layers.summaries else None),
     ]

@@ -5,6 +5,7 @@ Pure tests — no database, no network — on the dummy character, which is the 
 
 from lustjinn import tokens
 from lustjinn.context import (
+    DIRECTIVES_FRAME,
     MEMORIES_FRAME,
     PERSONA_FRAME,
     WORLD_FRAME,
@@ -50,7 +51,7 @@ def test_the_layers_are_sent_least_volatile_first(dummy: Dummy) -> None:
     contents = [m.content for m in built.messages]
     assert contents[0] == dummy.card
     assert contents[1] == PERSONA_FRAME + dummy.persona
-    assert contents[2] == "Pacing: Slow burn."
+    assert contents[2] == DIRECTIVES_FRAME + "Pacing: Slow burn."
     assert contents[3] == WORLD_FRAME + "Isaure: owes four hundred and ten marks."
     assert contents[4] == "Rowan arrived in the fog and took room seven."
     assert contents[5:7] == ["I take the stairs.", "*The stair creaks.*"]
@@ -100,6 +101,24 @@ def test_a_persona_is_framed_as_the_user_rather_than_sent_raw(dummy: Dummy) -> N
 
     assert built.messages[1].content.startswith("The user is playing the following person.")
     assert built.messages[1].content.endswith(dummy.persona)
+
+
+def test_the_dials_are_framed_as_the_readers_settings_that_outrank_the_card(dummy: Dummy) -> None:
+    built = build(Layers(character=heron(dummy), directives="Lust: Unhinged — no limits."))
+
+    sent = built.messages[1].content
+    assert sent.startswith("The reader has set how this story is told.")
+    assert "outrank anything in the character's description" in sent
+    assert sent.endswith("Lust: Unhinged — no limits.")
+    assert built.spent["directives"].tokens == tokens.for_message(sent)  # the frame is paid for
+
+
+def test_no_dials_means_no_frame(dummy: Dummy) -> None:
+    for nothing in (None, ""):
+        built = build(Layers(character=heron(dummy), directives=nothing))
+
+        assert "directives" not in built.spent
+        assert not any(DIRECTIVES_FRAME in m.content for m in built.messages)
 
 
 def test_an_instruction_after_a_reply_arrives_as_the_readers_turn(dummy: Dummy) -> None:

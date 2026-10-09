@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn import dials
-from lustjinn.context import PERSONA_FRAME
+from lustjinn.context import DIRECTIVES_FRAME, PERSONA_FRAME
 from lustjinn.dials import Kind, Lever, Pack, accept, directives, effective, label, sampler
 from lustjinn.models import DialValue
 from lustjinn.settings import Settings
@@ -386,7 +386,8 @@ async def test_a_prompt_lever_reaches_the_directives_layer_after_the_persona(
     assert sent[1]["content"].startswith(PERSONA_FRAME)
     assert sent[2]["role"] == "system"
     assert sent[2]["content"].startswith(
-        "Lust: Explicit — sexually forward, fast escalation, anatomically detailed.\n\n"
+        DIRECTIVES_FRAME
+        + "Lust: Explicit — sexually forward, fast escalation, anatomically detailed.\n\n"
         "After each character speaks and acts"
     )
     assert sent[3] == {"role": "assistant", "content": dummy.opening}
@@ -410,7 +411,10 @@ async def test_a_sampler_lever_reaches_the_request_and_never_the_prompt(
     assert not any("Creativity" in t or "Anti-loop" in t for t in texts)
     # "both": the ceiling on the call and a wording the model sees, so the ceiling never cuts
     # a reply the prompt asked to be long.
-    assert any(t.startswith("Response length: Minimal — a very brief response") for t in texts)
+    assert any(
+        t.startswith(DIRECTIVES_FRAME + "Response length: Minimal — a very brief response")
+        for t in texts
+    )
 
 
 async def test_with_nothing_set_the_request_carries_the_settings_and_no_penalty(
@@ -471,7 +475,7 @@ async def test_a_question_sees_the_dials_but_keeps_its_own_sampling(
     await send(client, story.id, "/ask what is her name?")
 
     texts = [m["content"] for m in model.last["messages"]]
-    assert any(t.startswith("Lust: Explicit") for t in texts)
+    assert any(t.startswith(DIRECTIVES_FRAME + "Lust: Explicit") for t in texts)
     assert model.last["temperature"] == 0.4
 
 
