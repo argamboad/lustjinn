@@ -86,6 +86,43 @@ async def test_an_unknown_command_is_refused_and_nothing_is_sent(
         assert len(server.paths("POST")) == posts
 
 
+async def test_a_server_command_typed_before_the_list_is_read_is_refused_not_sent(
+    app: LustjinnApp, server: fake.FakeServer
+) -> None:
+    server.add("Tale", OPENING)
+    server.commands_unreadable = True
+    async with app.run_test(size=(100, 30)) as pilot:
+        screen = await open_story(app, pilot)
+        assert app.server_commands is None  # the read on opening failed
+        server.commands_unreadable = False
+        posts = len(server.paths("POST"))
+        await pilot.press("i", *"/ask how old", "enter")
+        await pilot.pause()
+        assert screen.status_line.kind == Kind.WARNING
+        assert screen.status_line.text == (
+            "The server's commands have not been read yet, so /ask was not sent. "
+            "Try again in a moment."
+        )
+        assert screen.composer.text == "/ask how old"  # kept, to send again
+        assert len(server.paths("POST")) == posts
+        await pilot.pause(0.2)  # the refusal asked again, and this time the server answered
+        assert app.server_commands is not None
+        assert screen.slash.find("ask") is not None
+
+
+async def test_the_command_list_is_read_once_for_the_app(
+    app: LustjinnApp, server: fake.FakeServer
+) -> None:
+    server.add("Tale", OPENING)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await open_story(app, pilot)
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        await pilot.press("enter")  # the same story again
+        await pilot.pause(0.2)
+        assert server.paths("GET").count("/commands") == 1
+
+
 async def test_a_doubled_slash_sends_a_message_that_starts_with_one(
     app: LustjinnApp, server: fake.FakeServer
 ) -> None:

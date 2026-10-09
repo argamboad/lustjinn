@@ -7,11 +7,13 @@ something that happened. A command routes the same words where they belong — o
 leaves the transcript alone. So an unrecognised command is **refused, never sent**: the API would
 refuse it too (#18), but the client refuses first so that no request is made at all.
 
-Two kinds live side by side. The API's own commands (``/do``, ``/focus``, ``/ask``, ``/recap``,
-``/fact``, ``/tracker``) go to the server as typed and come back as a stream; the reading
-commands (``/card``, ``/persona``, ``/facts``, ``/trackers``, ``/audit``, ``/cost``,
-``/search``, ``/help``) are the client's, answered from the API's GET endpoints and shown in a
-pane. ``//`` sends a line that genuinely starts with a slash.
+Two kinds live side by side. The API's own commands go to the server as typed and come back
+as a stream; the client holds no copy of them, only what ``GET /commands`` answered (#131), so
+the two cannot drift. Until it has answered, a name that is not the client's own is refused as
+*not read yet* — never sent, since it may be a billed command. The reading commands (``/card``,
+``/persona``, ``/facts``, ``/trackers``, ``/audit``, ``/cost``, ``/search``, ``/help``) are the
+client's, answered from the API's GET endpoints and shown in a pane, and marked ``local``.
+``//`` sends a line that genuinely starts with a slash.
 
 The report builders turn what the API answered into lines a pane shows, the donor's wording
 kept, so "the facts" or "what this story has cost" reads the same here and on the phone.
@@ -87,49 +89,6 @@ LOCAL: Final[tuple[Spec, ...]] = (
     ),
 )
 
-# The API's list, as it stood when this was built: used until GET /commands answers, and when
-# it cannot. The server's list wins whenever it is read, so the two never drift for long.
-SHIPPED: Final[tuple[Spec, ...]] = (
-    Spec(
-        name="do",
-        usage="/do <direction>",
-        summary="Steer the next reply with an out-of-character direction; with a blank line "
-        "and a message under it, the message is sent and the direction steers the reply",
-        cost="billed",
-    ),
-    Spec(
-        name="focus",
-        usage="/focus <who>",
-        summary="Hand the next reply to a named character",
-        cost="billed",
-    ),
-    Spec(
-        name="ask",
-        usage="/ask <question>",
-        summary="Ask about the story out of character; the answer is shown, never stored",
-        cost="billed",
-    ),
-    Spec(
-        name="recap",
-        usage="/recap [turns]",
-        summary="The story so far: the latest summary, then the last few turns word for word",
-        cost="free",
-        needs_argument=False,
-    ),
-    Spec(
-        name="fact",
-        usage="/fact <statement>",
-        summary="Pin something as true from now on, under the character's name",
-        cost="write",
-    ),
-    Spec(
-        name="tracker",
-        usage="/tracker <name> <value>",
-        summary="Set a meter by hand; the value is the last word",
-        cost="write",
-    ),
-)
-
 
 @dataclass(frozen=True, slots=True)
 class Prose:
@@ -152,18 +111,28 @@ class Unknown:
 
 
 @dataclass(frozen=True, slots=True)
+class Unread:
+    """A name that is not the client's own, while the server's list has not been read: it may
+    be one of the server's commands, so it is refused rather than guessed at."""
+
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
 class Incomplete:
     spec: Spec
 
 
-Parsed = Prose | Command | Unknown | Incomplete
+Parsed = Prose | Command | Unknown | Unread | Incomplete
 
 
 class Commands:
     """What the composer knows: the server's commands and the client's own."""
 
-    def __init__(self, remote: Sequence[Spec] = SHIPPED) -> None:
-        self.remote = tuple(remote)
+    def __init__(self, remote: Sequence[Spec] | None = None) -> None:
+        self.remote = tuple(remote or ())
+        self.read = remote is not None
+        """Whether the server's list has been read; until then only the client's own are known."""
 
     @property
     def all(self) -> tuple[Spec, ...]:
@@ -199,7 +168,7 @@ class Commands:
         name, argument = typed[:end], typed[end:].strip()
         found = self.find(name)
         if found is None:
-            return Unknown(name)
+            return Unknown(name) if self.read else Unread(name)
         spec, local = found
         if spec.needs_argument and not argument:
             return Incomplete(spec)
@@ -213,6 +182,9 @@ class Commands:
             "free": "Free — these only read what is already here",
         }
         lines: list[str] = []
+        if not self.read:
+            lines.append("The server's commands have not been read yet; only these are known.")
+            lines.append("")
         for cost in ("billed", "write", "free"):
             group = [spec for spec in self.all if spec.cost == cost]
             if not group:

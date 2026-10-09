@@ -23,7 +23,14 @@ from textual.screen import Screen
 from textual.widgets import Input, TextArea
 
 from lustjinn_tui import config as configuration
-from lustjinn_tui.api import Api, ApiError, InterceptedError, SignedOutError, UnreachableError
+from lustjinn_tui.api import (
+    Api,
+    ApiError,
+    InterceptedError,
+    SignedOutError,
+    Spec,
+    UnreachableError,
+)
 from lustjinn_tui.config import Config, TokenStore
 from lustjinn_tui.dialect import Dialect, dialect_of
 from lustjinn_tui.editor import Editor, edit_in_editor
@@ -63,6 +70,9 @@ class LustjinnApp(App[None]):
         self.api = api
         self.badge = config.badge
         self.wake_waits = wake_waits
+        self.server_commands: tuple[Spec, ...] | None = None
+        """What ``GET /commands`` answered, read once by the first story opened and kept;
+        None until then."""
         self.editor: Editor = edit_in_editor  # the tests hand in one that needs no terminal
         self.last_key = ""
         self.dialect: Dialect = dialect_of(config.keyboard)
