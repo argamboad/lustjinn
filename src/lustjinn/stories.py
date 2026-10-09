@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from lustjinn.deps import Session
 from lustjinn.models import Character, Message, Persona, Role, Story
@@ -118,6 +119,28 @@ async def visible_story(session: AsyncSession, story_id: uuid.UUID) -> Story:
     if story is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no story with that id.")
     return story
+
+
+async def playable_story(session: AsyncSession, story_id: uuid.UUID) -> Story:
+    """A visible story with its character and persona loaded: what a prompt is built from."""
+    story = await session.scalar(
+        select(Story)
+        .options(joinedload(Story.character), joinedload(Story.persona))
+        .where(Story.id == story_id, Story.deleted_at.is_(None))
+    )
+    if story is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no story with that id.")
+    return story
+
+
+async def visible_messages(session: AsyncSession, story_id: uuid.UUID) -> list[Message]:
+    """The story's transcript as the reader sees it: hidden turns left out, in order."""
+    rows = await session.scalars(
+        select(Message)
+        .where(Message.story_id == story_id, Message.deleted_at.is_(None))
+        .order_by(Message.sequence)
+    )
+    return list(rows)
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

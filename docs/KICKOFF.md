@@ -35,7 +35,7 @@ The thesis carried over from airp:
 | API | **FastAPI** on **uvicorn** | ≈ ASP.NET minimal APIs: async, DI, OpenAPI built in |
 | Models, settings | **Pydantic**, **pydantic-settings** | ≈ records with validation, `IOptions<T>` |
 | Database | **Postgres** + **pgvector** — in **Docker** locally for now, **Neon** (free tier) when the app moves to the cloud | Neon is already used and liked: does not expire, wakes in ~1 s, vector search included. The schema is the same either way |
-| Data access | **SQLAlchemy 2.0** (async) + **Alembic** | ≈ EF Core + migrations. Worth also seeing plain SQL with `psycopg` once |
+| Data access | **SQLAlchemy 2.0** (async) + **Alembic**, queried directly from each feature — no repository layer ([ADR 0001](adr/0001-data-access.md)) | ≈ EF Core + migrations. Worth also seeing plain SQL with `psycopg` once |
 | Model API | **OpenRouter** via **httpx**, replies streamed over **SSE** | Same provider as airp; embeddings through it too |
 | Token counting | **tiktoken** `o200k_base` | Same vocabulary airp counts with |
 | Tests | **pytest**; HTTP faked with **httpx2**'s `MockTransport` (respx only supports httpx, and Starlette moved the project to httpx2 in step 1) | ≈ xUnit, a fake `HttpMessageHandler` |

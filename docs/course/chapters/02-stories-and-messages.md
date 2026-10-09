@@ -282,6 +282,13 @@ use instead of in `Program.cs`. The lifetime is per request, like `AddScoped`. W
 from the real provider to its stand-in. The tests use exactly that.
 :::
 
+There is no repository between the endpoint and the session, and no service layer: an endpoint
+writes its `select(...)` where it needs it. That is a decision, not an omission, and it is
+written down in `docs/adr/0001-data-access.md` (#134) — one user, tests against a real Postgres,
+and `dependency_overrides` already giving the test seam a repository would have — with the
+condition that would reverse it: the day there is a second user, every query needs an owner,
+and a layer that scopes them all becomes worth its file.
+
 ## The stories API
 
 `src/lustjinn/stories.py` holds five endpoints under `/stories`: create, list, read one with its

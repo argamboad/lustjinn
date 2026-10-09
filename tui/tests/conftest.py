@@ -8,12 +8,20 @@ from pathlib import Path
 
 import pytest
 
+from lustjinn_tui import emoji
 from lustjinn_tui.api import Api
 from lustjinn_tui.app import LustjinnApp
 from lustjinn_tui.config import Config, TokenStore
+from tui_support import emoji_table
 from tui_support import fake_server as fake
 
 FakeServer = fake.FakeServer
+
+
+@pytest.fixture(autouse=True)
+def emoji_read() -> None:
+    """Every test starts with the API's emoji table held, as the app has it after one read."""
+    emoji.load(emoji_table.shortcodes())
 
 
 @pytest.fixture

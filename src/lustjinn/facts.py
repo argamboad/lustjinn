@@ -13,7 +13,7 @@ transcript — it may be about something the story never mentioned — so nothin
 import json
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from datetime import datetime
 from typing import Annotated
 
@@ -30,6 +30,7 @@ from lustjinn.models import Fact, Message, Persona, SpendKind, Story
 from lustjinn.openrouter import ChatMessage, OpenRouter, Reply
 from lustjinn.settings import Settings
 from lustjinn.stories import visible_story
+from lustjinn.streams import Said, event
 
 log = logging.getLogger(__name__)
 
@@ -224,6 +225,20 @@ async def retire_by_hand(session: AsyncSession, fact: Fact) -> Fact:
         )
         await session.commit()
     return fact
+
+
+async def pin_fact(session: AsyncSession, story: Story, statement: str) -> AsyncIterator[str]:
+    """`/fact <statement>`: true from now on, pinned, filed under the character — a fact is
+    about someone, and the one this story is about is the one a reader means when they do
+    not say. No model call."""
+    await pin(session, story, story.character.name, statement)
+    yield event(
+        "done",
+        Said(
+            text=f"Pinned under {story.character.name}. It is in every prompt from the next "
+            "turn on, and the extractor cannot retire it."
+        ),
+    )
 
 
 router = APIRouter(prefix="/stories/{story_id}/facts", tags=["facts"])

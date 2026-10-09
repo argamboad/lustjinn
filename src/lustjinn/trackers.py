@@ -12,7 +12,7 @@ they stand; the delta tells them what the thing they just did was worth.
 
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, status
@@ -21,8 +21,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn.deps import Session
-from lustjinn.models import Message, Tracker
+from lustjinn.models import Message, Story, Tracker
 from lustjinn.stories import visible_story
+from lustjinn.streams import Said, event
 
 HEADER = (
     "These meters belong to this story. End every reply with all of them, each on its own "
@@ -172,6 +173,29 @@ def split_command(argument: str) -> tuple[str, float] | None:
 
 
 # --- the API --------------------------------------------------------------------------------------
+
+
+async def set_tracker(session: AsyncSession, story: Story, argument: str) -> AsyncIterator[str]:
+    """`/tracker <name> <value>`: moves a meter by hand and says so. No model call. A value that
+    is not a number, or a meter the story does not keep, is refused before the stream's first
+    event."""
+    split = split_command(argument)
+    if split is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "/tracker <name> <value> — the value has to be a number, so nothing was stored.",
+        )
+    name, value = split
+    tracker = await named(session, story.id, name)
+    if tracker is None:
+        raise HTTPException(
+            status.HTTP_404_NOT_FOUND,
+            f"This story has no meter called {name}, so nothing was stored.",
+        )
+    await set_value(session, tracker, value)
+    await session.commit()
+    yield event("done", Said(text=f"{tracker.name} is now {shown(value)}."))
+
 
 router = APIRouter(prefix="/stories/{story_id}/trackers", tags=["trackers"])
 

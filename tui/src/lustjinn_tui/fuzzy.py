@@ -7,6 +7,9 @@ charges the first match for every character skipped before it (-1 each, at most 
 candidate for being longer than the query (-1 each, at most -40), then adds +40 when the query
 occurs literally and +30 more when it does so at the very start. Several words in a query must
 all match, in any order; the score is their integer mean.
+
+The web app has the same matcher in ``web/src/lib/fuzzy.ts`` (#135), tested against scores
+computed here: change one, change both, so a filter orders the same stories in either client.
 """
 
 from __future__ import annotations

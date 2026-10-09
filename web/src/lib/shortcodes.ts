@@ -5,7 +5,7 @@
  * clock time or a URL never pops the list open, and a name is at most 32 characters.
  */
 
-import { EMOJI, type Shortcode } from './emoji.ts';
+import { emojiTable, type Shortcode } from './emoji.ts';
 
 export const MAX_NAME = 32;
 
@@ -36,15 +36,16 @@ export function tokenAt(text: string, caret: number): Token | null {
 
 export function findEmoji(name: string): string | null {
 	const wanted = name.toLowerCase();
-	return EMOJI.find((e) => e.name === wanted)?.emoji ?? null;
+	return emojiTable().find((e) => e.name === wanted)?.emoji ?? null;
 }
 
 /** Emoji whose name or keywords match the query, best first; the whole list for an empty query. */
 export function searchEmoji(query: string, limit = 8): Shortcode[] {
 	const q = query.toLowerCase();
-	if (!q) return EMOJI.slice(0, limit);
-	const starts = EMOJI.filter((e) => e.name.startsWith(q));
-	const contains = EMOJI.filter(
+	const all = emojiTable();
+	if (!q) return all.slice(0, limit);
+	const starts = all.filter((e) => e.name.startsWith(q));
+	const contains = all.filter(
 		(e) => !e.name.startsWith(q) && (e.name.includes(q) || e.keywords.includes(q))
 	);
 	return [...starts, ...contains].slice(0, limit);

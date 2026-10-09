@@ -254,6 +254,13 @@ class ConversationScreen(View):
         self.slash = Commands(self.lustjinn.server_commands)  # read already, or not yet
         self.run_worker(self._read_commands, exclusive=False)
         self.run_worker(self._read_snippets, exclusive=False)
+        self.run_worker(self._read_emoji, exclusive=False)
+
+    async def _read_emoji(self) -> None:
+        """The API's shortcode table, read once for the app; until then no emoji expands."""
+        if not emoji.loaded():
+            with contextlib.suppress(ApiError, UnreachableError):
+                emoji.load(await self.lustjinn.api.emoji())
 
     async def _read_snippets(self) -> None:
         """The snippet shelf's names, once per open: a snippet added meanwhile appears after

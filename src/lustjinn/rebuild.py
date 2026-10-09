@@ -18,7 +18,7 @@ from sqlalchemy.orm import joinedload
 
 from lustjinn import dials, memory, trackers
 from lustjinn.deps import CurrentSettings, Model, Session
-from lustjinn.library import default_persona
+from lustjinn.library import persona_of
 from lustjinn.models import Fact, Message, Story, Summary
 from lustjinn.openrouter import OpenRouter
 from lustjinn.settings import Settings
@@ -85,11 +85,9 @@ async def rebuild(
 
     # Composed as a turn would be — the dials' layer, the meters — so the batches fall where
     # playing would have put them.
-    persona = story.persona if story.persona is not None else await default_persona(session)
-    pack = dials.shipped()
-    values = await dials.values_of(session, story.id)
-    directives = dials.directives(pack, values)
-    ceiling = dials.sampler(pack, values).max_tokens or settings.max_tokens
+    persona = await persona_of(session, story)
+    directives, knobs = await dials.of_story(session, story.id)
+    ceiling = knobs.max_tokens or settings.max_tokens
     meters = trackers.render(await trackers.of(session, story.id))
     history = list(
         await session.scalars(

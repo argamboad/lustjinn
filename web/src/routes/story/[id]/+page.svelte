@@ -18,6 +18,7 @@
 		type Message,
 		type StoryWithMessages
 	} from '#lib/api.ts';
+	import { readEmoji } from '#lib/emoji.ts';
 	import { Extras } from '#lib/extras.svelte.ts';
 	import { expandEmoji } from '#lib/shortcodes.ts';
 	import { stories } from '#lib/stories.svelte.ts';
@@ -64,6 +65,7 @@
 	onMount(async () => {
 		try {
 			[story, commands] = await Promise.all([api.story(id), api.commands()]);
+			void readEmoji(api.emoji); // once per session; until then nothing expands
 			api
 				.snippets()
 				.then((found) => (snippets = found))

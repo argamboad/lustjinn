@@ -12,10 +12,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from lustjinn import (
+    asides,
+    audit,
     auth,
     commands,
     dials,
     editing,
+    emoji,
     export,
     facts,
     library,
@@ -102,7 +105,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         response = await call_next(request)
-        response.headers.update(PRIVATE)
+        # setdefault: a route that says how it may be cached keeps its say — only /emoji does,
+        # whose table is public. Everything else is private as above.
+        for name, value in PRIVATE.items():
+            response.headers.setdefault(name, value)
         return response
 
     @app.exception_handler(RequestValidationError)
@@ -126,10 +132,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return Health(status="ok", commit=os.environ.get("RENDER_GIT_COMMIT"))
 
     app.include_router(auth.router)
+    app.include_router(emoji.router)  # public: the table says nothing about anyone's stories
     # Everything below needs a valid token. A new router goes here, behind the guard, by default.
     app.include_router(stories.router, dependencies=[Depends(auth.require_user)])
     app.include_router(commands.router, dependencies=[Depends(auth.require_user)])
     app.include_router(turns.router, dependencies=[Depends(auth.require_user)])
+    app.include_router(asides.router, dependencies=[Depends(auth.require_user)])
+    app.include_router(audit.router, dependencies=[Depends(auth.require_user)])
     app.include_router(library.router, dependencies=[Depends(auth.require_user)])
     app.include_router(dials.router, dependencies=[Depends(auth.require_user)])
     app.include_router(trackers.router, dependencies=[Depends(auth.require_user)])

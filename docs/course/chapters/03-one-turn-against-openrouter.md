@@ -471,9 +471,9 @@ has to say what it does with each. The endpoint does so with a `match` statement
 ```python
 match commands.parse(body.text):
     case commands.Prose(text):
-        return _streamed(turn(session, openrouter, settings, story, text))
+        return streams.streamed(turn(session, openrouter, settings, story, text))
     case commands.Command(spec=commands.Spec(name="ask"), argument=question):
-        return _streamed(ask(session, openrouter, settings, story, question))
+        return streams.streamed(asides.ask(session, openrouter, settings, story, question))
     case commands.Incomplete(spec=spec):
         raise HTTPException(422, f"Usage: {spec.usage} — nothing was stored.")
     case commands.Unknown(name=name):

@@ -4,6 +4,7 @@
 	import AppBar from '#lib/AppBar.svelte';
 	import Tabs from '#lib/Tabs.svelte';
 	import { api, ApiError, type Story } from '#lib/api.ts';
+	import { rank } from '#lib/fuzzy.ts';
 	import { stories } from '#lib/stories.svelte.ts';
 	import { toasts } from '#lib/toasts.svelte.ts';
 
@@ -13,17 +14,9 @@
 	let confirming = $state<string | null>(null); // the card asked to confirm a delete
 	let pulling = $state(0); // pull-to-refresh distance
 
-	const shown = $derived.by(() => {
-		const list = stories.list ?? [];
-		const q = query.trim().toLowerCase();
-		if (!q) return list;
-		return list.filter(
-			(s) =>
-				s.name.toLowerCase().includes(q) ||
-				s.character_name.toLowerCase().includes(q) ||
-				(s.last_message_preview ?? '').toLowerCase().includes(q)
-		);
-	});
+	// The donor's fuzzy filter over the story's name, best match first — the terminal's too, so
+	// the same letters order the same stories in both clients (#135).
+	const shown = $derived(rank(stories.list ?? [], query, (s) => s.name));
 
 	const sub = $derived.by(() => {
 		const n = stories.list?.length;

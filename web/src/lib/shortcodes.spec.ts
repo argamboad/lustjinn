@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { EMOJI } from './emoji';
+import { beforeAll, describe, expect, it } from 'vitest';
+import served from '../../../src/lustjinn/emoji.json';
+import { emojiTable, loadEmoji, type Shortcode } from './emoji';
 import { appendSnippet, expandEmoji, findEmoji, searchEmoji, tokenAt } from './shortcodes';
+
+// The API's own table, as GET /emoji serves it: the app keeps no copy of its own (#132).
+const TABLE: Shortcode[] = served.shortcodes;
+
+beforeAll(() => loadEmoji(TABLE));
 
 describe('tokenAt', () => {
 	it('finds the shortcode being typed at the caret', () => {
@@ -26,8 +32,8 @@ describe('expandEmoji', () => {
 		);
 	});
 
-	it('ports the whole donor table', () => {
-		expect(EMOJI.length).toBeGreaterThan(200);
+	it('reads the whole donor table the API serves', () => {
+		expect(emojiTable().length).toBe(225);
 		expect(findEmoji('fire')).toBe('🔥');
 		expect(findEmoji('FIRE')).toBe('🔥');
 		expect(findEmoji('no-such-thing')).toBeNull();
@@ -52,5 +58,18 @@ describe('appendSnippet', () => {
 		expect(appendSnippet('', 'Rain.')).toBe('Rain.');
 		expect(appendSnippet('She waits ', 'Rain.')).toBe('She waits Rain.');
 		expect(appendSnippet('She waits', 'Rain.')).toBe('She waits Rain.');
+	});
+});
+
+describe('before the table is read', () => {
+	it('expands nothing and offers nothing', () => {
+		loadEmoji([]);
+		try {
+			expect(findEmoji('smile')).toBeNull();
+			expect(searchEmoji('smile')).toEqual([]);
+			expect(expandEmoji('hi :smile:')).toBe('hi :smile:');
+		} finally {
+			loadEmoji(TABLE);
+		}
 	});
 });
