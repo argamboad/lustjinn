@@ -18,7 +18,7 @@ from importlib import resources
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -448,6 +448,8 @@ router = APIRouter(tags=["dials"])
 
 
 class LevelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     label: str
     text: str | None
     value: float | None
@@ -455,12 +457,18 @@ class LevelOut(BaseModel):
 
 
 class OptionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     key: str
     label: str
     text: str
 
 
 class DialOut(BaseModel):
+    """A dial of the pack, read straight off its `Dial`, its levels and options with it."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     key: str
     kind: Kind
     lever: Lever
@@ -496,28 +504,6 @@ class SetDial(BaseModel):
     value: str
 
 
-def _dial_out(dial: Dial) -> DialOut:
-    return DialOut(
-        key=dial.key,
-        kind=dial.kind,
-        lever=dial.lever,
-        maps=dial.maps,
-        enabled=dial.enabled,
-        default=dial.default,
-        title=dial.title,
-        help=dial.help,
-        levels=[
-            LevelOut(label=v.label, text=v.text, value=v.value, description=v.description)
-            for v in dial.levels
-        ],
-        options=[OptionOut(key=o.key, label=o.label, text=o.text) for o in dial.options],
-        on_text=dial.on_text,
-        template=dial.template,
-        accepts=dial.accepts,
-        examples=list(dial.examples),
-    )
-
-
 def _story_dial_out(dial: Dial, values: Mapping[str, str]) -> StoryDialOut:
     in_force = effective(dial, values)
     return StoryDialOut(
@@ -542,7 +528,7 @@ def _known(key: str) -> Dial:
 async def read_pack() -> list[DialOut]:
     """The pack: every dial, with the text each level or option sends. The text shown on a
     screen and the text the model receives are the same."""
-    return [_dial_out(dial) for dial in shipped().dials]
+    return [DialOut.model_validate(dial) for dial in shipped().dials]
 
 
 @router.get("/stories/{story_id}/dials")

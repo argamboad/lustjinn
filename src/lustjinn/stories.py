@@ -31,6 +31,9 @@ class Rename(BaseModel):
 
 
 class StoryOut(BaseModel):
+    # Read off a row of `_stories()`, whose columns are labelled with these names.
+    model_config = ConfigDict(from_attributes=True)
+
     id: uuid.UUID
     name: str
     character_id: uuid.UUID
@@ -62,7 +65,8 @@ class StoryWithMessages(StoryOut):
 
 
 def _stories(story_id: uuid.UUID | None = None):
-    """Visible stories with their character, persona and newest visible message.
+    """Visible stories with their character, persona and newest visible message, one row per
+    story with a column for each field of `StoryOut` — so a row validates as one.
 
     Newest activity first. One story when `story_id` is given.
     """
@@ -75,7 +79,18 @@ def _stories(story_id: uuid.UUID | None = None):
         .lateral("newest")
     )
     query = (
-        select(Story, Character.name, Persona.name, newest.c.sent_at, newest.c.text)
+        select(
+            Story.id,
+            Story.name,
+            Story.character_id,
+            Character.name.label("character_name"),
+            Story.persona_id,
+            Persona.name.label("persona_name"),
+            Story.created_at,
+            newest.c.sent_at.label("last_message_at"),
+            # The preview is cut in the database: only its first characters leave it.
+            func.left(newest.c.text, PREVIEW_LENGTH).label("last_message_preview"),
+        )
         .join(Character, Story.character_id == Character.id)
         .outerjoin(Persona, Story.persona_id == Persona.id)
         .outerjoin(newest, true())
@@ -87,32 +102,12 @@ def _stories(story_id: uuid.UUID | None = None):
     return query
 
 
-def _out(
-    story: Story,
-    character_name: str,
-    persona_name: str | None,
-    last_message_at: datetime | None,
-    last_text: str | None,
-) -> StoryOut:
-    return StoryOut(
-        id=story.id,
-        name=story.name,
-        character_id=story.character_id,
-        character_name=character_name,
-        persona_id=story.persona_id,
-        persona_name=persona_name,
-        created_at=story.created_at,
-        last_message_at=last_message_at,
-        last_message_preview=None if last_text is None else last_text[:PREVIEW_LENGTH],
-    )
-
-
 async def _one(session: AsyncSession, story_id: uuid.UUID) -> StoryOut:
     row = (await session.execute(_stories(story_id))).one_or_none()
     if row is None:
         # A deleted story answers exactly like one that never existed.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "There is no story with that id.")
-    return _out(*row)
+    return StoryOut.model_validate(row)
 
 
 async def visible_story(session: AsyncSession, story_id: uuid.UUID) -> Story:
@@ -150,7 +145,7 @@ async def create_story(new: NewStory, session: Session) -> StoryWithMessages:
 async def list_stories(session: Session) -> list[StoryOut]:
     """Every story that has not been deleted, the one played most recently first."""
     rows = await session.execute(_stories())
-    return [_out(*row) for row in rows]
+    return [StoryOut.model_validate(row) for row in rows]
 
 
 @router.get("/{story_id}")

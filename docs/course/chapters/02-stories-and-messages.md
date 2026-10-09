@@ -260,7 +260,7 @@ Session = Annotated[AsyncSession, Depends(get_session)]
 @router.get("")
 async def list_stories(session: Session) -> list[StoryOut]:
     rows = await session.execute(_stories())
-    return [_out(*row) for row in rows]
+    return [StoryOut.model_validate(row) for row in rows]
 ```
 
 `Depends(get_session)` tells FastAPI: before calling this function, call `get_session` and pass
@@ -298,11 +298,24 @@ class NewStory(BaseModel):
     name: Name
     character_id: uuid.UUID
     persona_id: uuid.UUID | None = None
-    model: ModelName | None = None
 ```
 
 A body with a blank name, or an id that is not a UUID, never reaches the function: FastAPI
 answers 422 with the field and the reason.
+
+**A response is read off what the database returns.** `StoryOut` says
+`model_config = ConfigDict(from_attributes=True)`, so `StoryOut.model_validate(row)` builds it by
+reading the attributes of the same names. The query that feeds it labels its columns to match —
+`Character.name.label("character_name")`, `func.left(newest.c.text, 200).label(
+"last_message_preview")` — so a row *is* a story as the API shows it, and no hand-written mapper
+copies field after field (#130). A new column is then one line in the query and one in the
+model, not a third in a mapper that is easy to forget.
+
+::: dotnet
+`from_attributes` is AutoMapper's convention mapping, or a hand-written `Select(r => new
+StoryOut { ... })` that EF Core translates — except that the projection here is the SQL's own
+column names, and Pydantic only reads them. `.label(...)` is `AS character_name`.
+:::
 
 **A router groups endpoints.** `APIRouter(prefix="/stories")` is `MapGroup("/stories")`; the app
 includes it with `app.include_router(...)`.
