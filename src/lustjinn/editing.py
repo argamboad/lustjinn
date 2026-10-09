@@ -10,12 +10,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.models import (
     Aside,
     DialValue,
@@ -30,7 +30,6 @@ from lustjinn.models import (
 from lustjinn.stories import StoryWithMessages, read_story, visible_story
 
 router = APIRouter(prefix="/stories/{story_id}", tags=["editing"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 

@@ -10,18 +10,17 @@ exact phrase is what the donor's readers asked for.
 import uuid
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.library import default_persona
 from lustjinn.models import Character, Message, Persona, Role, Story
 from lustjinn.stories import visible_story
 
 router = APIRouter(tags=["search"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 SNIPPET_RADIUS = 48
 """Characters shown around the first match in a list of hits across stories."""

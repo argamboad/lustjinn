@@ -25,15 +25,13 @@ from pydantic import BaseModel, SecretStr
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.db import get_session
+from lustjinn.deps import CurrentSettings, Session
 from lustjinn.models import SignInFailure
-from lustjinn.settings import Settings, get_settings
+from lustjinn.settings import Settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 ALGORITHM = "HS256"  # one secret both signs and verifies; only this server ever does either
-CurrentSettings = Annotated[Settings, Depends(get_settings)]
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 class Credentials(BaseModel):

@@ -4,18 +4,16 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.models import Character, Message, Persona, Role, Story
 
 router = APIRouter(prefix="/stories", tags=["stories"])
 
-# "Give me the request's database session": FastAPI calls get_session and passes the result in.
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 

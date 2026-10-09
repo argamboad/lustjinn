@@ -15,14 +15,14 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from functools import lru_cache
 from importlib import resources
-from typing import Annotated, Any
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.models import DialValue
 from lustjinn.stories import visible_story
 
@@ -445,7 +445,6 @@ async def values_of(session: AsyncSession, story_id: uuid.UUID) -> dict[str, str
 # --- the API --------------------------------------------------------------------------------------
 
 router = APIRouter(tags=["dials"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 class LevelOut(BaseModel):

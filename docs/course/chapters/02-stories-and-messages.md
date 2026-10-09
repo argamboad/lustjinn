@@ -252,9 +252,11 @@ constraint.
 Every endpoint that touches the database needs a session. It asks for one in its signature:
 
 ```python
+# src/lustjinn/deps.py
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 
+# src/lustjinn/stories.py
 @router.get("")
 async def list_stories(session: Session) -> list[StoryOut]:
     rows = await session.execute(_stories())
@@ -264,6 +266,11 @@ async def list_stories(session: Session) -> list[StoryOut]:
 `Depends(get_session)` tells FastAPI: before calling this function, call `get_session` and pass
 in what it yields. `Annotated[X, ...]` attaches that instruction to the type, and the alias
 `Session` gives the pair a name so every endpoint can write `session: Session`.
+
+The aliases live in one module, `deps.py` — the session, the settings (`CurrentSettings`) and the
+model client (`Model`) — and every route module imports them. For a while each module declared
+its own `Session`, thirteen copies of one line; the day injection changes, that is thirteen
+places to find (#129).
 
 There is no container and no registration step. A dependency is any callable; its own parameters
 can be dependencies in turn; a generator dependency gets its cleanup run after the response.

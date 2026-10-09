@@ -11,21 +11,18 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from fastapi.responses import Response
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn.db import get_session
+from lustjinn.deps import Session
 from lustjinn.library import default_persona
 from lustjinn.models import Message, Role, Story
 from lustjinn.stories import visible_story
 
 router = APIRouter(prefix="/stories/{story_id}", tags=["export"])
-Session = Annotated[AsyncSession, Depends(get_session)]
 
 
 class Format(StrEnum):
