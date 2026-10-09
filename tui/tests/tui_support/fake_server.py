@@ -15,6 +15,8 @@ from typing import Any
 
 import httpx2
 
+from tui_support import emoji_table
+
 TOKEN = "t0ken"
 USERNAME = "allan"
 PASSWORD = "secret"
@@ -310,6 +312,8 @@ class FakeServer:
             return self._stories(parts, request)
         if parts[0] == "library":
             return self._library(parts, request)
+        if path == "/emoji":
+            return httpx2.Response(200, json=emoji_table.served())
         if path == "/commands":
             if self.commands_unreadable:
                 return httpx2.Response(503, json={"detail": "Not now."})

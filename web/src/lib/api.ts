@@ -4,6 +4,7 @@
  * (`VITE_API_URL`), the local API by default.
  */
 
+import type { Shortcode } from './emoji.ts';
 import { readEvents } from './sse';
 
 export const API_URL: string =
@@ -332,6 +333,7 @@ export const api = {
 		),
 
 	commands: () => json<Command[]>('GET', '/commands'),
+	emoji: () => json<Shortcode[]>('GET', '/emoji'),
 	dialPack: () => json<Dial[]>('GET', '/dials'),
 	storyDials: (storyId: string) => json<StoryDial[]>('GET', `/stories/${storyId}/dials`),
 	setDial: (storyId: string, key: string, value: string) =>

@@ -190,9 +190,32 @@ Everything the composer does is in one component. A leading `/` opens the comman
 `GET /commands` — a new endpoint, so neither client keeps a copy of the list the API enforces —
 with what each command costs; Tab completes. A `:name` at a word start opens the picker: the
 library's snippets by name, inserted as their text, and emoji by name or keyword from the
-donor's table of 225, ported as data. `:wave:` becomes 👋 before the message is sent; a bare
-`:storm` is a snippet trigger the API expands when it stores the message, as chapter 4 built.
-Enter sends; when the composer is empty the send button reads *Carry on ›*.
+donor's table of 225. `:wave:` becomes 👋 before the message is sent; a bare `:storm` is a
+snippet trigger the API expands when it stores the message, as chapter 4 built. Enter sends;
+when the composer is empty the send button reads *Carry on ›*.
+
+The emoji table was first ported twice, once into each client, and two copies of a table are
+two places to forget an emoji. It is now data in the API's package, `emoji.json` beside
+`dials.json`, served as `GET /emoji` (#132): the one route besides `/health` and sign-in that
+answers without a token — it says nothing about anyone's stories — and the one response a
+browser may cache, for a day. Each client reads it once per session; until then a `:name:` stays
+as typed, which is what it would be anyway for a name the table lacks.
+
+Every other response goes out `Cache-Control: no-store`, set by a middleware on the way out.
+For `/emoji` to keep its own say, the middleware sets each private header only if the route did
+not:
+
+```python
+for name, value in PRIVATE.items():
+    response.headers.setdefault(name, value)
+```
+
+::: dotnet
+The middleware is `app.Use(async (ctx, next) => { ctx.Response.OnStarting(...); await next(); })`
+adding headers, and `setdefault` is `TryAdd` on `IHeaderDictionary` where `update` was the
+indexer: the route's own `Cache-Control`, like `[ResponseCache(Duration = 86400)]`, now wins.
+A test asserts that `/health` still goes out `no-store`, so the exception stays one route wide.
+:::
 
 Answers that are shown once and stored nowhere — `/ask`, `/recap`, a `/tracker` set — appear as
 dashed notes in the conversation, labelled so. Reroll opens a sheet of the nine

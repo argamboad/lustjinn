@@ -1,264 +1,42 @@
 """The emoji shortcodes the composer expands: ``:smile:`` becomes the emoji
 (``EmojiShortcodes.cs``).
 
-Ported from the donor's table, keywords included for the picker's search, by a script over the
-web app's copy (``web/src/lib/emoji.ts``); edit the donor's list, not this file. ``suggest`` ranks
-with the donor's fuzzy matcher and puts an exact name first.
+The table is the API's, read once from ``GET /emoji`` and held here for the app (#132): the
+client keeps no copy that could drift from the web's. Until it has been read, nothing expands
+and nothing is offered — a ``:name:`` stays as typed, which is what it would be anyway for a
+name the table lacks. ``suggest`` ranks with the donor's fuzzy matcher and puts an exact name
+first.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Final
+from collections.abc import Iterable
 
+from lustjinn_tui.api import Shortcode
 from lustjinn_tui.fuzzy import rank
 
-
-@dataclass(frozen=True, slots=True)
-class Shortcode:
-    name: str
-    emoji: str
-    keywords: str = ""
-
-    @property
-    def search_text(self) -> str:
-        return self.name if not self.keywords else f"{self.name} {self.keywords}"
+_table: tuple[Shortcode, ...] = ()
+_by_name: dict[str, str] = {}
 
 
-ALL: Final[tuple[Shortcode, ...]] = (
-    Shortcode("smile", "\U0001f604", "happy joy grin"),
-    Shortcode("smiley", "\U0001f603", "happy joy"),
-    Shortcode("grin", "\U0001f601", "happy"),
-    Shortcode("laughing", "\U0001f606", "haha lol"),
-    Shortcode("joy", "\U0001f602", "laugh cry tears lol"),
-    Shortcode("rofl", "\U0001f923", "rolling laughing floor"),
-    Shortcode("sweat_smile", "\U0001f605", "relief phew"),
-    Shortcode("slightly_smiling_face", "\U0001f642", "slight smile"),
-    Shortcode("upside_down_face", "\U0001f643", "irony sarcasm"),
-    Shortcode("wink", "\U0001f609", "flirt"),
-    Shortcode("blush", "\U0001f60a", "shy happy"),
-    Shortcode("innocent", "\U0001f607", "angel halo"),
-    Shortcode("heart_eyes", "\U0001f60d", "love adore"),
-    Shortcode("kissing_heart", "\U0001f618", "kiss love"),
-    Shortcode("smiling_face_with_three_hearts", "\U0001f970", "adore love"),
-    Shortcode("star_struck", "\U0001f929", "amazed wow"),
-    Shortcode("hugs", "\U0001f917", "hug embrace"),
-    Shortcode("relieved", "\U0001f60c", "content calm"),
-    Shortcode("yum", "\U0001f60b", "delicious tasty"),
-    Shortcode("stuck_out_tongue", "\U0001f61b", "tongue cheeky"),
-    Shortcode("stuck_out_tongue_winking_eye", "\U0001f61c", "cheeky joke"),
-    Shortcode("zany_face", "\U0001f92a", "silly wild"),
-    Shortcode("sunglasses", "\U0001f60e", "cool"),
-    Shortcode("nerd_face", "\U0001f913", "geek glasses"),
-    Shortcode("partying_face", "\U0001f973", "celebrate party"),
-    Shortcode("smirk", "\U0001f60f", "sly"),
-    Shortcode("thinking", "\U0001f914", "hmm think consider"),
-    Shortcode("raised_eyebrow", "\U0001f928", "skeptical doubt"),
-    Shortcode("neutral_face", "\U0001f610", "meh blank"),
-    Shortcode("expressionless", "\U0001f611", "blank"),
-    Shortcode("no_mouth", "\U0001f636", "silent speechless"),
-    Shortcode("unamused", "\U0001f612", "meh unimpressed"),
-    Shortcode("roll_eyes", "\U0001f644", "eyeroll whatever"),
-    Shortcode("grimacing", "\U0001f62c", "awkward eek"),
-    Shortcode("zipper_mouth_face", "\U0001f910", "secret quiet"),
-    Shortcode("shushing_face", "\U0001f92b", "quiet secret"),
-    Shortcode("pensive", "\U0001f614", "sad thoughtful"),
-    Shortcode("confused", "\U0001f615", "unsure"),
-    Shortcode("worried", "\U0001f61f", "concern"),
-    Shortcode("frowning_face", "\u2639\ufe0f", "sad"),
-    Shortcode("cry", "\U0001f622", "sad tear"),
-    Shortcode("sob", "\U0001f62d", "crying bawling"),
-    Shortcode("disappointed", "\U0001f61e", "sad let down"),
-    Shortcode("weary", "\U0001f629", "tired exhausted"),
-    Shortcode("tired_face", "\U0001f62b", "exhausted"),
-    Shortcode("sleepy", "\U0001f62a", "tired"),
-    Shortcode("sleeping", "\U0001f634", "asleep zzz"),
-    Shortcode("fearful", "\U0001f628", "scared"),
-    Shortcode("cold_sweat", "\U0001f630", "anxious nervous"),
-    Shortcode("scream", "\U0001f631", "horror shock"),
-    Shortcode("flushed", "\U0001f633", "embarrassed blush"),
-    Shortcode("astonished", "\U0001f632", "shocked wow"),
-    Shortcode("open_mouth", "\U0001f62e", "surprised"),
-    Shortcode("hushed", "\U0001f62f", "surprised quiet"),
-    Shortcode("exploding_head", "\U0001f92f", "mind blown"),
-    Shortcode("angry", "\U0001f620", "mad cross"),
-    Shortcode("rage", "\U0001f621", "furious mad"),
-    Shortcode("triumph", "\U0001f624", "huff steam"),
-    Shortcode("face_with_symbols_over_mouth", "\U0001f92c", "swearing cursing"),
-    Shortcode("nauseated_face", "\U0001f922", "sick disgusted"),
-    Shortcode("face_vomiting", "\U0001f92e", "sick"),
-    Shortcode("sick", "\U0001f912", "thermometer ill"),
-    Shortcode("mask", "\U0001f637", "unwell"),
-    Shortcode("dizzy_face", "\U0001f635", "stunned"),
-    Shortcode("skull", "\U0001f480", "dead"),
-    Shortcode("ghost", "\U0001f47b", "boo spooky"),
-    Shortcode("alien", "\U0001f47d", "ufo space"),
-    Shortcode("robot", "\U0001f916", "bot ai"),
-    Shortcode("clown_face", "\U0001f921", "joker"),
-    Shortcode("poop", "\U0001f4a9", "rubbish"),
-    Shortcode("cat", "\U0001f431", "kitten"),
-    Shortcode("heart_eyes_cat", "\U0001f63b", "love cat"),
-    Shortcode("joy_cat", "\U0001f639", "laughing cat"),
-    Shortcode("dog", "\U0001f436", "puppy"),
-    Shortcode("fox_face", "\U0001f98a", "fox"),
-    Shortcode("bear", "\U0001f43b", ""),
-    Shortcode("panda_face", "\U0001f43c", "panda"),
-    Shortcode("monkey", "\U0001f412", ""),
-    Shortcode("see_no_evil", "\U0001f648", "monkey"),
-    Shortcode("hear_no_evil", "\U0001f649", "monkey"),
-    Shortcode("speak_no_evil", "\U0001f64a", "monkey"),
-    Shortcode("unicorn", "\U0001f984", "magic"),
-    Shortcode("bug", "\U0001f41b", "insect caterpillar"),
-    Shortcode("beetle", "\U0001fab2", "insect"),
-    Shortcode("spider", "\U0001f577\ufe0f", ""),
-    Shortcode("snake", "\U0001f40d", ""),
-    Shortcode("penguin", "\U0001f427", ""),
-    Shortcode("bird", "\U0001f426", ""),
-    Shortcode("whale", "\U0001f433", ""),
-    Shortcode("fish", "\U0001f41f", ""),
-    Shortcode("octopus", "\U0001f419", ""),
-    Shortcode("butterfly", "\U0001f98b", ""),
-    Shortcode("thumbsup", "\U0001f44d", "+1 yes like approve"),
-    Shortcode("thumbsdown", "\U0001f44e", "-1 no dislike"),
-    Shortcode("ok_hand", "\U0001f44c", "fine good"),
-    Shortcode("clap", "\U0001f44f", "applause bravo"),
-    Shortcode("raised_hands", "\U0001f64c", "praise celebrate"),
-    Shortcode("pray", "\U0001f64f", "please thanks"),
-    Shortcode("wave", "\U0001f44b", "hello goodbye hi"),
-    Shortcode("handshake", "\U0001f91d", "deal agree"),
-    Shortcode("muscle", "\U0001f4aa", "strong flex"),
-    Shortcode("point_right", "\U0001f449", "this"),
-    Shortcode("point_left", "\U0001f448", ""),
-    Shortcode("point_up", "\U0001f446", ""),
-    Shortcode("point_down", "\U0001f447", ""),
-    Shortcode("crossed_fingers", "\U0001f91e", "luck hope"),
-    Shortcode("v", "\u270c\ufe0f", "peace victory"),
-    Shortcode("fist", "\u270a", "solidarity"),
-    Shortcode("writing_hand", "\u270d\ufe0f", "write note"),
-    Shortcode("eyes", "\U0001f440", "look watching"),
-    Shortcode("brain", "\U0001f9e0", "mind smart"),
-    Shortcode("shrug", "\U0001f937", "dunno whatever"),
-    Shortcode("facepalm", "\U0001f926", "sigh oops"),
-    Shortcode("dancer", "\U0001f483", "dancing celebrate"),
-    Shortcode("heart", "\u2764\ufe0f", "love red"),
-    Shortcode("orange_heart", "\U0001f9e1", "love"),
-    Shortcode("yellow_heart", "\U0001f49b", "love"),
-    Shortcode("green_heart", "\U0001f49a", "love"),
-    Shortcode("blue_heart", "\U0001f499", "love"),
-    Shortcode("purple_heart", "\U0001f49c", "love"),
-    Shortcode("black_heart", "\U0001f5a4", "love"),
-    Shortcode("broken_heart", "\U0001f494", "sad heartbreak"),
-    Shortcode("sparkling_heart", "\U0001f496", "love"),
-    Shortcode("heartpulse", "\U0001f497", "love"),
-    Shortcode("star", "\u2b50", "favourite"),
-    Shortcode("sparkles", "\u2728", "shiny magic new"),
-    Shortcode("dizzy", "\U0001f4ab", "star"),
-    Shortcode("boom", "\U0001f4a5", "explosion collision"),
-    Shortcode("fire", "\U0001f525", "lit hot burn"),
-    Shortcode("zap", "\u26a1", "lightning fast"),
-    Shortcode("100", "\U0001f4af", "hundred perfect"),
-    Shortcode("tada", "\U0001f389", "party celebrate congrats"),
-    Shortcode("confetti_ball", "\U0001f38a", "party celebrate"),
-    Shortcode("balloon", "\U0001f388", "party"),
-    Shortcode("gift", "\U0001f381", "present"),
-    Shortcode("trophy", "\U0001f3c6", "win award"),
-    Shortcode("medal", "\U0001f3c5", "award"),
-    Shortcode("crown", "\U0001f451", "king queen"),
-    Shortcode("gem", "\U0001f48e", "diamond"),
-    Shortcode("rocket", "\U0001f680", "launch ship fast"),
-    Shortcode("checkered_flag", "\U0001f3c1", "finish race"),
-    Shortcode("white_check_mark", "\u2705", "done yes tick"),
-    Shortcode("heavy_check_mark", "\u2714\ufe0f", "tick done"),
-    Shortcode("x", "\u274c", "no cross wrong"),
-    Shortcode("warning", "\u26a0\ufe0f", "caution careful"),
-    Shortcode("question", "\u2753", "help"),
-    Shortcode("exclamation", "\u2757", "important"),
-    Shortcode("bangbang", "\u203c\ufe0f", "important"),
-    Shortcode("no_entry", "\u26d4", "stop forbidden"),
-    Shortcode("recycle", "\u267b\ufe0f", "reuse"),
-    Shortcode("infinity", "\u267e\ufe0f", "forever"),
-    Shortcode("bulb", "\U0001f4a1", "idea light"),
-    Shortcode("wrench", "\U0001f527", "fix tool"),
-    Shortcode("hammer", "\U0001f528", "build tool"),
-    Shortcode("gear", "\u2699\ufe0f", "settings cog"),
-    Shortcode("lock", "\U0001f512", "secure private"),
-    Shortcode("key", "\U0001f511", "unlock"),
-    Shortcode("mag", "\U0001f50d", "search find"),
-    Shortcode("bell", "\U0001f514", "notify alert"),
-    Shortcode("no_bell", "\U0001f515", "mute silent"),
-    Shortcode("hourglass", "\u23f3", "wait time"),
-    Shortcode("alarm_clock", "\u23f0", "time wake"),
-    Shortcode("calendar", "\U0001f4c5", "date schedule"),
-    Shortcode("memo", "\U0001f4dd", "note write"),
-    Shortcode("books", "\U0001f4da", "read study"),
-    Shortcode("computer", "\U0001f4bb", "laptop code"),
-    Shortcode("iphone", "\U0001f4f1", "phone mobile"),
-    Shortcode("camera", "\U0001f4f7", "photo"),
-    Shortcode("headphones", "\U0001f3a7", "music listen"),
-    Shortcode("musical_note", "\U0001f3b5", "music song"),
-    Shortcode("microphone", "\U0001f3a4", "sing voice"),
-    Shortcode("art", "\U0001f3a8", "paint palette"),
-    Shortcode("clapper", "\U0001f3ac", "film movie"),
-    Shortcode("game_die", "\U0001f3b2", "dice random"),
-    Shortcode("video_game", "\U0001f3ae", "gaming controller"),
-    Shortcode("envelope", "\u2709\ufe0f", "mail letter"),
-    Shortcode("package", "\U0001f4e6", "box delivery"),
-    Shortcode("money_with_wings", "\U0001f4b8", "spend cost"),
-    Shortcode("chart_with_upwards_trend", "\U0001f4c8", "growth up"),
-    Shortcode("chart_with_downwards_trend", "\U0001f4c9", "decline down"),
-    Shortcode("bar_chart", "\U0001f4ca", "stats data"),
-    Shortcode("pushpin", "\U0001f4cc", "pin"),
-    Shortcode("paperclip", "\U0001f4ce", "attach"),
-    Shortcode("link", "\U0001f517", "url chain"),
-    Shortcode("scissors", "\u2702\ufe0f", "cut"),
-    Shortcode("wastebasket", "\U0001f5d1\ufe0f", "bin delete trash"),
-    Shortcode("coffee", "\u2615", "tea drink caffeine"),
-    Shortcode("tea", "\U0001f375", "drink"),
-    Shortcode("beer", "\U0001f37a", "drink pub"),
-    Shortcode("wine_glass", "\U0001f377", "drink"),
-    Shortcode("champagne", "\U0001f37e", "celebrate drink"),
-    Shortcode("cake", "\U0001f370", "dessert"),
-    Shortcode("birthday", "\U0001f382", "cake celebrate"),
-    Shortcode("cookie", "\U0001f36a", "biscuit"),
-    Shortcode("chocolate_bar", "\U0001f36b", "sweet"),
-    Shortcode("doughnut", "\U0001f369", "donut"),
-    Shortcode("pizza", "\U0001f355", "food"),
-    Shortcode("hamburger", "\U0001f354", "burger food"),
-    Shortcode("fries", "\U0001f35f", "chips food"),
-    Shortcode("taco", "\U0001f32e", "food"),
-    Shortcode("apple", "\U0001f34e", "fruit"),
-    Shortcode("banana", "\U0001f34c", "fruit"),
-    Shortcode("strawberry", "\U0001f353", "fruit"),
-    Shortcode("avocado", "\U0001f951", "food"),
-    Shortcode("popcorn", "\U0001f37f", "cinema snack"),
-    Shortcode("salt", "\U0001f9c2", "seasoning"),
-    Shortcode("sunny", "\u2600\ufe0f", "sun clear weather"),
-    Shortcode("cloud", "\u2601\ufe0f", "weather"),
-    Shortcode("rain_cloud", "\U0001f327\ufe0f", "weather wet"),
-    Shortcode("snowflake", "\u2744\ufe0f", "cold winter"),
-    Shortcode("rainbow", "\U0001f308", "colour pride"),
-    Shortcode("ocean", "\U0001f30a", "wave sea"),
-    Shortcode("earth_africa", "\U0001f30d", "world globe"),
-    Shortcode("moon", "\U0001f319", "night"),
-    Shortcode("sun_with_face", "\U0001f31e", "sunshine"),
-    Shortcode("seedling", "\U0001f331", "plant grow"),
-    Shortcode("herb", "\U0001f33f", "plant leaf"),
-    Shortcode("four_leaf_clover", "\U0001f340", "luck"),
-    Shortcode("maple_leaf", "\U0001f341", "autumn fall"),
-    Shortcode("cactus", "\U0001f335", "plant"),
-    Shortcode("evergreen_tree", "\U0001f332", "forest pine"),
-    Shortcode("mountain", "\u26f0\ufe0f", "hill peak"),
-    Shortcode("rose", "\U0001f339", "flower"),
-    Shortcode("sunflower", "\U0001f33b", "flower"),
-    Shortcode("bouquet", "\U0001f490", "flowers"),
-)
+def load(table: Iterable[Shortcode]) -> None:
+    """Holds the table the API served, in its order, for every story the app opens."""
+    global _table, _by_name
+    _table = tuple(table)
+    _by_name = {code.name.lower(): code.emoji for code in _table}
 
-BY_NAME: Final[dict[str, str]] = {s.name: s.emoji for s in ALL}
+
+def loaded() -> bool:
+    return bool(_table)
+
+
+def table() -> tuple[Shortcode, ...]:
+    return _table
 
 
 def find(name: str | None) -> str | None:
     """The emoji for a name, case folded; None when the table has no such name."""
-    return BY_NAME.get(name.lower()) if name else None
+    return _by_name.get(name.lower()) if name else None
 
 
 def suggest(query: str | None, limit: int = 8) -> list[Shortcode]:
@@ -267,8 +45,8 @@ def suggest(query: str | None, limit: int = 8) -> list[Shortcode]:
     if limit <= 0:
         return []
     if not query:
-        return list(ALL[:limit])
-    ranked = rank(ALL, query, lambda s: s.search_text)
+        return list(_table[:limit])
+    ranked = rank(_table, query, lambda s: s.search_text)
     exact = next((s for s in ranked if s.name == query.lower()), None)
     if exact is not None:
         return [exact, *[s for s in ranked if s.name != exact.name][: limit - 1]]

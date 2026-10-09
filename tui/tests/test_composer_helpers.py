@@ -5,6 +5,7 @@ and an emoji is one character to the cursor (the donor's ``EmojiComposerTests`` 
 
 from textual.pilot import Pilot
 
+from lustjinn_tui import emoji
 from lustjinn_tui.app import LustjinnApp
 from lustjinn_tui.completion import Strip
 from lustjinn_tui.conversation import ConversationScreen
@@ -29,6 +30,19 @@ async def open_story(app: LustjinnApp, pilot: Pilot[None]) -> ConversationScreen
 def offered(screen: ConversationScreen) -> list[str]:
     strip = screen.query_one(Strip)
     return [c.display for c in strip.offer.completions] if strip.offer else []
+
+
+async def test_the_first_story_opened_reads_the_emoji_table_from_the_api(
+    app: LustjinnApp, server: fake.FakeServer
+) -> None:
+    emoji.load([])  # as the app starts: nothing read yet
+    server.add("Tale", OPENING)
+    async with app.run_test(size=(100, 30)) as pilot:
+        await open_story(app, pilot)
+        await pilot.pause(0.1)
+        assert emoji.loaded()
+        assert emoji.find("tada") == "🎉"
+        assert server.paths("GET").count("/emoji") == 1
 
 
 async def test_a_colon_offers_emoji_and_tab_inserts_the_glyph(

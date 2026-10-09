@@ -41,11 +41,12 @@ def test_combining_marks_keycaps_and_crlf_stay_with_their_base() -> None:
 
 
 def test_every_shortcode_has_a_unique_name_an_emoji_and_a_typeable_name() -> None:
-    names = [s.name for s in emoji.ALL]
-    assert len(names) == len(set(names))
-    assert all(s.emoji for s in emoji.ALL)
-    assert all(all(shortcodes.is_name_character(c) for c in s.name) for s in emoji.ALL)
-    assert all(len(s.name) <= shortcodes.MAX_NAME for s in emoji.ALL)
+    table = emoji.table()
+    names = [s.name for s in table]
+    assert len(names) == len(set(names)) == 225
+    assert all(s.emoji for s in table)
+    assert all(all(shortcodes.is_name_character(c) for c in s.name) for s in table)
+    assert all(len(s.name) <= shortcodes.MAX_NAME for s in table)
 
 
 def test_find_is_case_insensitive_and_suggest_ranks_an_exact_name_first() -> None:
@@ -53,10 +54,22 @@ def test_find_is_case_insensitive_and_suggest_ranks_an_exact_name_first() -> Non
     assert emoji.find("nope") is None
     assert emoji.find("") is None
     assert emoji.suggest("smile")[0].name == "smile"
-    assert emoji.suggest("")[:2] == list(emoji.ALL[:2])
+    assert emoji.suggest("")[:2] == list(emoji.table()[:2])
     assert emoji.suggest("lol")[0].name in {"laughing", "joy"}  # by keyword
     assert len(emoji.suggest("a", 3)) == 3
     assert emoji.suggest("smile", 0) == []
+
+
+def test_before_the_table_is_read_nothing_expands_and_nothing_is_offered() -> None:
+    held = emoji.table()
+    emoji.load([])
+    try:
+        assert not emoji.loaded()
+        assert emoji.find("smile") is None
+        assert emoji.suggest("smile") == []
+        assert shortcodes.expand_emoji("hi :smile:") == "hi :smile:"  # as typed
+    finally:
+        emoji.load(held)
 
 
 def test_a_shortcode_being_typed_is_recognised_and_ordinary_prose_is_left_alone() -> None:

@@ -267,6 +267,19 @@ class Export(BaseModel):
     text: str
 
 
+class Shortcode(BaseModel):
+    """One emoji shortcode, as ``GET /emoji`` lists it: ``:smile:`` becomes 😄."""
+
+    name: str
+    emoji: str
+    keywords: str = ""
+
+    @property
+    def search_text(self) -> str:
+        """What the picker's fuzzy search reads: the name, then the keywords."""
+        return self.name if not self.keywords else f"{self.name} {self.keywords}"
+
+
 class Spec(BaseModel):
     """One slash command the API recognises, as ``GET /commands`` lists it."""
 
@@ -375,6 +388,7 @@ _dials = TypeAdapter(list[Dial])
 _story_dials = TypeAdapter(list[StoryDial])
 _trackers = TypeAdapter(list[Tracker])
 _specs = TypeAdapter(list[Spec])
+_shortcodes = TypeAdapter(list[Shortcode])
 _done = TypeAdapter[TurnDone | AsideDone | Said | Failed](Done)
 
 
@@ -559,6 +573,10 @@ class Api:
 
     async def commands(self) -> list[Spec]:
         return _specs.validate_python(await self._request("GET", "/commands"))
+
+    async def emoji(self) -> list[Shortcode]:
+        """The shortcode table both composers expand; public, and read once."""
+        return _shortcodes.validate_python(await self._request("GET", "/emoji"))
 
     async def export(self, story_id: uuid.UUID, fmt: ExportFormat) -> Export:
         """The transcript as a document, with the file name the server suggests."""

@@ -327,7 +327,8 @@ the same — it may be a billed command, and a guess would bill a typo — with 
 the list is not in yet, and a second read started in the background.
 
 The helpers from airp's composer are the last issue: `:name` offers the library's snippets by
-name and emoji by name or keyword from the donor's table of 225, `:smile:` becomes 😄 as the
+name and emoji by name or keyword from the donor's table of 225 — the API's, from `GET /emoji`,
+read the first time a story opens and held for the app (#132) — `:smile:` becomes 😄 as the
 closing colon lands, a word offers completions after three letters in the reader's own
 capitalisation, and an emoji is one character to the cursor. That last one is `graphemes.py`,
 the part of UAX #29 a chat meets — joiners, skin tones, flags, keycaps — because Textual's text

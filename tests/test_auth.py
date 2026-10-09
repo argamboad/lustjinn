@@ -11,8 +11,8 @@ from lustjinn.auth import issue_token, sign
 from lustjinn.main import app, create_app
 from lustjinn.settings import Settings
 
-OPEN = {"/health", "/auth/sign-in"}
-"""The only routes that answer without a token."""
+OPEN = {"/health", "/auth/sign-in", "/emoji"}
+"""The only routes that answer without a token. /emoji is a public table (#132)."""
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -83,7 +83,7 @@ async def test_without_a_token_the_api_says_to_sign_in(anonymous: httpx2.AsyncCl
     assert "Sign in first" in response.json()["detail"]
 
 
-async def test_every_route_but_health_and_sign_in_needs_a_token(
+async def test_every_route_but_the_open_ones_needs_a_token(
     anonymous: httpx2.AsyncClient,
 ) -> None:
     """Walks the app's own description of itself, so a route added later is covered for free."""
