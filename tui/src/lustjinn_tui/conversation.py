@@ -47,7 +47,7 @@ from lustjinn_tui.api import (
     TurnDone,
     UnreachableError,
 )
-from lustjinn_tui.commands import Command, Commands, Incomplete, Prose, Unknown
+from lustjinn_tui.commands import Command, Commands, Incomplete, Prose, Unknown, Unread
 from lustjinn_tui.completion import LIMIT, Completion, Offer, Strip
 from lustjinn_tui.composer import Caption, Composer
 from lustjinn_tui.confirm import ConfirmScreen
@@ -251,6 +251,7 @@ class ConversationScreen(View):
         self._size_column()
         self._show_header()
         self.run_worker(partial(self._load, "Loading the story"), exclusive=True)
+        self.slash = Commands(self.lustjinn.server_commands)  # read already, or not yet
         self.run_worker(self._read_commands, exclusive=False)
         self.run_worker(self._read_snippets, exclusive=False)
 
@@ -263,9 +264,13 @@ class ConversationScreen(View):
             }
 
     async def _read_commands(self) -> None:
-        """The server's list wins over the shipped one whenever it can be read."""
-        with contextlib.suppress(ApiError, UnreachableError):
-            self.slash = Commands(await self.lustjinn.api.commands())
+        """The server's commands, read once for the app and kept: a small, free list. Until it
+        answers, only the client's own commands are known and anything else is refused."""
+        app = self.lustjinn
+        if app.server_commands is None:
+            with contextlib.suppress(ApiError, UnreachableError):
+                app.server_commands = tuple(await app.api.commands())
+        self.slash = Commands(app.server_commands)
 
     def on_resize(self) -> None:
         self._size_column()
@@ -561,6 +566,15 @@ class ConversationScreen(View):
                     "send it as a message.",
                     Kind.WARNING,
                 )
+            case Unread(name=name):
+                # Maybe a real command, maybe a typo: until the server's list is in, nobody can
+                # tell, and guessing wrong would bill a typo. Ask again in the background.
+                self.status(
+                    f"The server's commands have not been read yet, so /{name} was not sent. "
+                    "Try again in a moment.",
+                    Kind.WARNING,
+                )
+                self.run_worker(self._read_commands, exclusive=False)
             case Incomplete(spec=spec):
                 self.status(f"{spec.usage} — nothing has been sent.", Kind.WARNING)
             case Command(spec=spec, argument=argument, local=True):

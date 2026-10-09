@@ -5,15 +5,25 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from lustjinn_tui.api import AsideAudit, Audit, ByKind, Fact, Hit, StorySpend, Tracker, TurnAudit
+from lustjinn_tui.api import (
+    AsideAudit,
+    Audit,
+    ByKind,
+    Fact,
+    Hit,
+    Spec,
+    StorySpend,
+    Tracker,
+    TurnAudit,
+)
 from lustjinn_tui.commands import (
     LOCAL,
-    SHIPPED,
     Command,
     Commands,
     Incomplete,
     Prose,
     Unknown,
+    Unread,
     audit_report,
     command_being_typed,
     cost_report,
@@ -23,38 +33,56 @@ from lustjinn_tui.commands import (
     trackers_report,
 )
 
+# What GET /commands answers, as test data: the client keeps no copy of its own (#131).
+SERVED = (
+    Spec(name="do", usage="/do <direction>", summary="Steer", cost="billed"),
+    Spec(name="focus", usage="/focus <who>", summary="Hand over", cost="billed"),
+    Spec(name="ask", usage="/ask <question>", summary="Ask", cost="billed"),
+    Spec(name="recap", usage="/recap [turns]", summary="So far", cost="free", needs_argument=False),
+    Spec(name="fact", usage="/fact <statement>", summary="Pin", cost="write"),
+    Spec(name="tracker", usage="/tracker <name> <value>", summary="Set", cost="write"),
+)
+
 
 def test_prose_is_sent_and_a_doubled_slash_sends_a_literal_one() -> None:
-    commands = Commands()
+    commands = Commands(SERVED)
     assert commands.parse("  Hello there  ") == Prose("Hello there")
     assert commands.parse("//ask is a message") == Prose("/ask is a message")
 
 
 def test_a_known_command_carries_its_argument_and_knows_where_it_runs() -> None:
-    commands = Commands()
+    commands = Commands(SERVED)
     parsed = commands.parse("/ask  how old is she?")
-    assert parsed == Command(SHIPPED[2], "how old is she?", local=False)
-    assert commands.parse("/ASK why") == Command(SHIPPED[2], "why", local=False)
+    assert parsed == Command(SERVED[2], "how old is she?", local=False)
+    assert commands.parse("/ASK why") == Command(SERVED[2], "why", local=False)
     parsed = commands.parse("/facts")
     assert isinstance(parsed, Command)
     assert parsed.local
     assert parsed.spec.name == "facts"
     parsed = commands.parse("/do\nskip to the evening")  # a newline ends the name too
-    assert parsed == Command(SHIPPED[0], "skip to the evening", local=False)
+    assert parsed == Command(SERVED[0], "skip to the evening", local=False)
 
 
 def test_an_unknown_command_is_refused_and_a_missing_argument_too() -> None:
-    commands = Commands()
+    commands = Commands(SERVED)
     assert commands.parse("/asl how old") == Unknown("asl")
     assert commands.parse("/") == Unknown("")
-    assert commands.parse("/ask") == Incomplete(SHIPPED[2])
-    assert commands.parse("/ask   ") == Incomplete(SHIPPED[2])
+    assert commands.parse("/ask") == Incomplete(SERVED[2])
+    assert commands.parse("/ask   ") == Incomplete(SERVED[2])
     assert commands.parse("/help") == Command(LOCAL[-1], "", local=True)
 
 
-def test_the_servers_list_replaces_the_shipped_one_and_the_local_ones_stay() -> None:
-    from lustjinn_tui.api import Spec
+def test_until_the_servers_list_is_read_only_the_clients_own_are_known() -> None:
+    commands = Commands()
+    assert not commands.read
+    assert commands.parse("/ask why") == Unread("ask")  # maybe billed: refused, not guessed at
+    assert commands.parse("/facts") == Command(LOCAL[2], "", local=True)
+    assert [s.name for s in commands.matching("")] == [s.name for s in LOCAL]
+    assert commands.help_lines()[0].startswith("The server's commands have not been read yet")
+    assert Commands([]).parse("/ask why") == Unknown("ask")  # read, and it serves none
 
+
+def test_the_servers_list_is_all_there_is_and_the_local_ones_stay() -> None:
     commands = Commands(
         [Spec(name="zap", usage="/zap", summary="New", cost="free", needs_argument=False)]
     )
@@ -64,7 +92,7 @@ def test_the_servers_list_replaces_the_shipped_one_and_the_local_ones_stay() -> 
 
 
 def test_matching_is_a_prefix_match_in_the_helps_order() -> None:
-    commands = Commands()
+    commands = Commands(SERVED)
     assert [s.name for s in commands.matching("f")] == ["focus", "fact", "facts"]
     assert [s.name for s in commands.matching("tr")] == ["tracker", "trackers"]
     assert commands.matching("zzz") == []
@@ -82,7 +110,7 @@ def test_the_command_being_typed_is_only_at_the_very_start() -> None:
 
 
 def test_help_lines_group_by_cost_and_end_with_the_doubled_slash() -> None:
-    lines = Commands().help_lines()
+    lines = Commands(SERVED).help_lines()
     assert lines[0] == "Billed — these call the model"
     assert lines[1] == "  /do <direction>"
     assert "These write to the story" in lines

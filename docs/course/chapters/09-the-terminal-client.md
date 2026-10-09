@@ -318,6 +318,14 @@ stores a turn. What the parser cannot place — an unknown name, a command missi
 argument — is refused on the status row and **nothing is sent**, which the donor's
 `SlashCommands` tests insisted on: a mistyped command must never become a line of the story.
 
+The terminal keeps no copy of the server's commands. It first shipped one "as the API stood when
+this was built", for the moment before `GET /commands` answered, and within a week the copy and
+the server disagreed (#131). Now the list is read once, the first time a story opens, and kept on
+the app for every story after. Until it has answered, the parser knows only the client's own
+commands, and a name it cannot place comes back as `Unread` rather than `Unknown`: refused all
+the same — it may be a billed command, and a guess would bill a typo — with a message that says
+the list is not in yet, and a second read started in the background.
+
 The helpers from airp's composer are the last issue: `:name` offers the library's snippets by
 name and emoji by name or keyword from the donor's table of 225, `:smile:` becomes 😄 as the
 closing colon lands, a word offers completions after three letters in the reader's own

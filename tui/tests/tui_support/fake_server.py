@@ -196,6 +196,7 @@ class FakeServer:
         self.trackers: dict[str, list[dict[str, Any]]] = {}
         self.audits: dict[str, dict[str, Any]] = {}
         self.answer = "She is twenty-nine; the story said so in the second scene."
+        self.commands_unreadable = False  # GET /commands fails, as on a cold start
         self.commands: list[dict[str, Any]] = [
             {
                 "name": "do",
@@ -310,6 +311,8 @@ class FakeServer:
         if parts[0] == "library":
             return self._library(parts, request)
         if path == "/commands":
+            if self.commands_unreadable:
+                return httpx2.Response(503, json={"detail": "Not now."})
             return httpx2.Response(200, json=self.commands)
         if path == "/search":
             return self._search(request)
