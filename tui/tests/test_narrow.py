@@ -150,7 +150,7 @@ async def test_with_the_mouse_on_the_bottom_row_is_buttons_that_press_keys(
         await pilot.pause(0.3)
         assert line.render().plain.startswith(" ‹   Write   Reroll ")
         await pilot.click(StatusLine, offset=(6, 0))  # Write
-        await pilot.pause()
+        await pilot.pause(0.2)  # the composer's hint lingers on the row, then the buttons return
         assert conversation.composer.display
         assert line.render().plain == " Send   Close   ⋯ "
         await pilot.press(*"Hello")
