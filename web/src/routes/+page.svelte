@@ -70,11 +70,6 @@
 		return at.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 	}
 
-	function shortModel(model: string | null): string | null {
-		if (!model) return null;
-		return model.split('/').pop()?.replace(/-/g, ' ') ?? model;
-	}
-
 	// --- swipe: a card dragged left shows Branch and Delete -------------------------------
 	let drag = $state<{ id: string; x: number; dx: number } | null>(null);
 
@@ -237,7 +232,6 @@
 						<div class="text">
 							<div class="name">
 								<span>{story.name}</span>
-								{#if story.model}<span class="chip gold small">{shortModel(story.model)}</span>{/if}
 							</div>
 							<div class="preview prose">
 								{story.last_message_preview ?? `With ${story.character_name}. Nothing said yet.`}
@@ -399,10 +393,6 @@
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;
-	}
-	.chip.small {
-		padding: 1px 7px;
-		font-size: 0.66rem;
 	}
 	.preview {
 		color: var(--fg-2);

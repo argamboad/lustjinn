@@ -1,5 +1,6 @@
-"""The header: the app's name and a badge for the server, the model on the right; the breadcrumb
-of open screens and the version under it; a rule (``Ui/Shell.cs``, ``BuildHeaderRows``).
+"""The header: the app's name and a badge for the server; the breadcrumb of open screens and
+the version under it; a rule (``Ui/Shell.cs``, ``BuildHeaderRows``). The donor showed the model
+on the right; every story plays on the default here (#140), so there is nothing to show.
 
 On a phone it is one row and its rule: what you are reading and where you are in it — the
 screen's title and its summary — since a thirty-eight-column screen has no row to spare for a
@@ -26,10 +27,9 @@ class Masthead(Vertical):
     Masthead .right { width: auto; color: $muted; }
     """
 
-    def __init__(self, *, badge: str = "Local", model: str = "") -> None:
+    def __init__(self, *, badge: str = "Local") -> None:
         super().__init__()
         self._badge = badge
-        self._model = model
         self._crumbs: tuple[str, ...] = ()
         self._summary: str | None = None
         self.narrow = False
@@ -37,7 +37,6 @@ class Masthead(Vertical):
     def compose(self) -> ComposeResult:
         with Horizontal(id="brand-row"):
             yield Static(self._brand(), classes="left", id="brand")
-            yield Static(self._model, classes="right", id="model")
         with Horizontal():
             yield Static("", classes="left", id="crumbs")
             yield Static(short(), classes="right", id="version")
@@ -74,10 +73,6 @@ class Masthead(Vertical):
         self.query_one("#brand-row").display = not narrow
         self.query_one("#version").display = not narrow
         self._draw_crumbs()
-
-    def set_model(self, model: str) -> None:
-        self._model = model
-        self.query_one("#model", Static).update(model)
 
     @property
     def crumbs(self) -> tuple[str, ...]:

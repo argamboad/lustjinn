@@ -157,20 +157,6 @@ async def test_a_reply_may_reason_first_when_the_settings_allow_it(
     assert "reasoning" not in model.last
 
 
-async def test_a_story_plays_on_its_own_model_with_the_temperature_mapped_onto_its_range(
-    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
-) -> None:
-    story = await a_story(session, await a_character(session))
-    story.model = "thedrummer/cydonia-24b-v4.1"
-    await session.commit()
-    model.says("Hm.")
-
-    await send(client, story.id, "Hello.")
-
-    assert model.last["model"] == "thedrummer/cydonia-24b-v4.1"
-    assert model.last["temperature"] == 0.6  # 1.0 on the dial, inside this model's 0.3 to 0.9
-
-
 async def test_the_message_survives_a_model_that_fails(
     client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
 ) -> None:

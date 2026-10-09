@@ -129,7 +129,6 @@ class Story(Base):
     persona_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("personas.id", ondelete="RESTRICT"), index=True
     )
-    model: Mapped[str | None] = mapped_column(String(200))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 ```

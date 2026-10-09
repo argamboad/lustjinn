@@ -11,7 +11,7 @@ that manage a story, with this chapter.
 | dials, meters | branch, delete from a message |
 | carry on, `/do`, `/focus` | search, export |
 | regenerate with a reason | cost reports |
-| a model per story, with fallback | facts by hand |
+| a model per story — taken out again | facts by hand |
 | `/recap` | rebuild the memory, purge |
 
 ## One module per feature
@@ -182,43 +182,47 @@ async def reroll(story_id: uuid.UUID, ..., body: Reroll | None = None) -> Stream
 A body typed `Reroll | None = None` is optional on a POST: the chapter 4 clients that send
 nothing still work, and one that sends `{"reason": "looping"}` gets its note.
 
-## A model per story, and the default behind it
+## A model per story — built, then taken out
 
-A story plays on the default model unless it names its own, and it can change at any turn — the
-prompt is rebuilt from the store on every send, so nothing already written belongs to the model
-that wrote it. Three ways that goes wrong were known before any of it was built, and each has a
-rule:
+Step 7 shipped a model per story, ported from airp: a story could name its own model, checked
+against the provider's list before it was saved; its budget was fitted to that model's window;
+its temperature was mapped onto the model's range; and the default wrote any turn the story's
+model could not take, with the reply saying so.
 
-- **A mistyped id fails every turn.** A model is saved only if the provider's list has it. The
-  list is read once per ten minutes into a module-level cache — a public list, and none of it on
-  a send.
-- **A model with a smaller window refuses every full prompt.** The window is checked before the
-  save (the fixed layers, the reply ceiling and room for a turn must fit) and the story keeps the
-  window it was checked against. Every turn's budget is then *fitted* to it — one copy of the
-  settings, handed to the summariser, the retriever and the builder alike:
+It was taken out again (#140), once airp had shown what the choice was worth. The model billed as
+the most explicit wrote about like the default, and the larger ones cost several times as much
+for no difference a reader could name. What changes a reply is the card, the dials and the host
+serving the model — all of which work on the default. Every rule the choice needed (a
+temperature map, window corrections, a fitted budget, a fallback, a cached model list) existed
+only to keep the choice from breaking a story. Every story now plays on `LUSTJINN_MODEL`;
+changing it is one variable.
 
-  ```python
-  def fitted(settings: Settings, story: Story) -> Settings:
-      room = story.model_context - settings.max_tokens
-      if room >= settings.context_budget:
-          return settings
-      return settings.model_copy(update={"context_budget": max(room, LEAST_BUDGET)})
-  ```
+Taking a feature out is a migration like any other, read backwards:
 
-  A provider's list says what a host accepts, not what the model was trained to read; a
-  correction per model (`SHIPPED_WINDOWS`, `LUSTJINN_MODEL_WINDOWS`) is believed over the list.
-- **A model that is there today has no host tomorrow.** Then the default writes the turn, at its
-  own temperature, and the reply records `fell_back_from` so a client can warn once. The same
-  happens when the estimated prompt exceeds the story model's room — decided before anything is
-  sent. Anything else is reported, not retried: a rejected key would refuse the default too.
+```python
+def upgrade() -> None:
+    op.drop_column("messages", "fell_back_from")
+    op.drop_column("stories", "model_context")
+    op.drop_column("stories", "model")
+
+
+def downgrade() -> None:
+    op.add_column("stories", sa.Column("model", sa.String(length=200), nullable=True))
+    op.add_column("stories", sa.Column("model_context", sa.Integer(), nullable=True))
+    op.add_column("messages", sa.Column("fell_back_from", sa.String(length=200), nullable=True))
+```
+
+The downgrade brings the columns back empty, not their values: a dropped column's data is gone.
+That is why the data was checked first — no story on staging had named a model, and no reply had
+ever fallen back.
 
 ::: dotnet
-The module-level `_catalogue` with a `time.monotonic()` stamp is a hand-rolled `IMemoryCache`
-entry with a ten-minute absolute expiry; `global` is how a function assigns to it. `model_copy(
-update=…)` on a Pydantic settings object is `options with { ContextBudget = … }` on a record —
-a copy, so one story's small model does not shrink every other story's budget. The fallback is
-written with `nonlocal written` inside a nested `async def`: a closure assigning to the enclosing
-function's variable, which C# lambdas do without a keyword.
+`op.drop_column` is EF Core's `migrationBuilder.DropColumn`, and `downgrade` is `Down`. Deleting
+the attributes from the SQLAlchemy model without a migration fails the schema test from chapter 2
+— the models and the migrations must agree — exactly as an EF model change without a migration
+leaves `PendingModelChangesWarning`. An API field removed from a Pydantic body is ignored, not
+refused, when an old client still sends it: `BaseModel` drops unknown fields by default, as
+`System.Text.Json` does.
 :::
 
 ## Branch, and delete from a message
@@ -319,9 +323,7 @@ in it**. `tests/test_branching.py` makes the dummy story with a summary, a strad
 facts of every kind, embeddings, a meter, a dial, two questions, a hidden reply and a bill — and
 branch, delete-from and purge all test against it, each asserting the rules on the same rows.
 Cost reports are tested against totals worked out by hand in the test file, including an
-unpriced call and a purged story. The scripted model grew a `listing` for `GET /models`, and the
-`model` fixture forgets the ten-minute catalogue cache before each test, or one test's list would
-leak into the next.
+unpriced call and a purged story.
 
 ::: note
 Step 7 made no real calls. Dials and meters are deterministic through the API, and the one thing
@@ -344,8 +346,8 @@ what the three turns cost, discarded replies apart.
 
 - An API that does everything airp's two clients did, feature by feature, each in its own module
   behind the guard.
-- Two more tables (`dial_values`, `trackers`), two more columns (`stories.model_context`,
-  `messages.fell_back_from`), and no new mechanism.
+- Two more tables (`dial_values`, `trackers`) and no new mechanism. (Two columns came and went
+  with the model per story.)
 - Every endpoint and all six slash commands tested, so the clients can be built against a
   contract that does not move.
 

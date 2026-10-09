@@ -47,7 +47,6 @@ async def test_a_story_keeps_its_character_and_persona(session: AsyncSession) ->
 
     assert found is not None
     assert (found.character_id, found.persona_id) == (character.id, persona.id)
-    assert found.model is None
     assert found.deleted_at is None
     assert found.created_at is not None
 

@@ -1,16 +1,15 @@
-"""A story's settings: its model, then its dials (``Views/ChatSettingsView.cs``).
+"""A story's settings: its dials (``Views/ChatSettingsView.cs``). The donor put the story's
+model first; every story plays on the default here (#140), so the dials are all there is.
 
-The model is a row like the dials, first because it decides more about a reply than any of
-them, stepped through the same ``←→`` and applied by the same ``Enter``. Changes are staged: the
+Each dial is stepped through with ``←→`` and applied with ``Enter``. Changes are staged: the
 row shows the new value in the warning colour with "(was …)" beside it, and nothing reaches the
 server until ``Enter`` applies the lot. ``Esc`` discards staged changes before it leaves. A
-refusal (a model the provider does not list, a dial that does not take the value) leaves the
-row on what the story really has, with the server's sentence in the status row.
+refusal (a dial that does not take the value) leaves the row on what the story really has, with
+the server's sentence in the status row.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
 from typing import ClassVar
@@ -23,7 +22,7 @@ from textual.content import Content
 from textual.widget import Widget
 from textual.widgets import Input, Static
 
-from lustjinn_tui.api import ApiError, Choice, Dial, DialOption, Story, UnreachableError
+from lustjinn_tui.api import ApiError, Dial, Story, UnreachableError
 from lustjinn_tui.hairline import Hairline
 from lustjinn_tui.legend import Hint
 from lustjinn_tui.status import Kind
@@ -31,45 +30,16 @@ from lustjinn_tui.textfmt import fit
 from lustjinn_tui.theme import HEADING
 from lustjinn_tui.view import View
 
-MODEL_KEY = "__model"
-
 
 @dataclass(frozen=True, slots=True)
 class Row:
-    """One setting as the screen steps it: the dial, or the model dressed as a choice dial."""
+    """One setting as the screen steps it."""
 
     dial: Dial
 
     @property
     def key(self) -> str:
         return self.dial.key
-
-
-def model_row(default: str, own: str | None, choices: list[Choice]) -> Row:
-    """The model as a choice dial: the default first, then the configured choices, and the
-    story's own when it is not among them."""
-    options = [DialOption(key=default, label=f"Default — {default}", text="the configured model")]
-    listed = [c for c in choices if not c.is_default]
-    if own is not None and own.lower() != default.lower() and all(c.id != own for c in listed):
-        options.append(DialOption(key=own, label=own, text="the story's own model"))
-    options.extend(
-        DialOption(
-            key=c.id,
-            label=c.describe(),
-            text="checked against the provider's list when applied; prices are list prices",
-        )
-        for c in listed
-    )
-    return Row(
-        Dial(
-            key=MODEL_KEY,
-            kind="choice",
-            title="Model",
-            help="What writes this story's replies and answers. Summaries and facts stay on the "
-            "default. A model with a smaller window than the budget shrinks the story's budget.",
-            options=options,
-        )
-    )
 
 
 def level_index(dial: Dial, value: str | None) -> int | None:
@@ -221,13 +191,11 @@ class ChatSettingsScreen(View):
     ChatSettingsScreen #foot { height: 1; }
     """
 
-    def __init__(self, story: Story, on_model: Callable[[str | None], None]) -> None:
+    def __init__(self, story: Story) -> None:
         super().__init__()
         self.story = story
-        self._on_model = on_model
         self._loaded = False
         self._typing = False
-        self._default_model = ""
 
     def hints(self) -> tuple[Hint, ...]:
         if self._typing:
@@ -269,21 +237,12 @@ class ChatSettingsScreen(View):
         pack = await self.lustjinn.call("Reading the settings", api.dial_pack())
         if pack is None:
             return
-        own = await self.lustjinn.call("Reading the settings", api.story_model(self.story.id))
-        if own is None:
-            return
-        try:
-            choices = await api.models()
-        except ApiError, UnreachableError:
-            choices = []
-        self._default_model = own.default
         settings = self.settings
         by_key = {dial.key: dial for dial in pack}
-        settings.rows = [model_row(own.default, own.model, choices)] + [
+        settings.rows = [
             Row(by_key[d.key]) for d in read if d.key in by_key and by_key[d.key].enabled
         ]
         applied = {d.key: d.stored for d in read if d.stored is not None}
-        applied[MODEL_KEY] = own.model or own.default
         settings.applied = applied
         settings.staged = dict(applied)
         settings.selected = min(settings.selected, max(0, len(settings.rows) - 1))
@@ -291,7 +250,7 @@ class ChatSettingsScreen(View):
         self.query_one("#loading").display = False
         settings.display = True
         self._refresh()
-        if len(applied) == 1:
+        if not applied:
             self.status("This story has no settings of its own yet; the pack's defaults apply.")
 
     def _refresh(self) -> None:
@@ -383,10 +342,7 @@ class ChatSettingsScreen(View):
         row = self.settings.current
         if row is None:
             return
-        if row.key == MODEL_KEY:
-            self.settings.staged[MODEL_KEY] = self._default_model
-        else:
-            self.settings.staged.pop(row.key, None)
+        self.settings.staged.pop(row.key, None)
         self._refresh()
 
     def action_reload(self) -> None:
@@ -425,12 +381,7 @@ class ChatSettingsScreen(View):
         for row in changed:
             value = settings.staged.get(row.key)
             try:
-                if row.key == MODEL_KEY:
-                    wanted = None if value == self._default_model else value
-                    result = await api.set_model(self.story.id, wanted)
-                    settings.staged[MODEL_KEY] = result.model or self._default_model
-                    self._on_model(result.model)
-                elif value is None:
+                if value is None:
                     await api.clear_dial(self.story.id, row.key)
                 else:
                     stored = await api.set_dial(self.story.id, row.key, value)

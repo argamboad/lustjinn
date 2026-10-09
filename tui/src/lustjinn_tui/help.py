@@ -89,7 +89,7 @@ SECTIONS: Final[tuple[Section, ...]] = (
             Row("Home End", "First / last message"),
             Row(">", "Carry on with no prompt from you"),
             Row("G", "Regenerate the last reply, with a reason"),
-            Row("S", "Model and dials"),
+            Row("S", "The dials"),
             Row("B", "Branch from the selected message"),
             Row("Del", "Delete from the selected message onwards"),
             Row("/", "Search inside this story"),
@@ -123,7 +123,7 @@ SECTIONS: Final[tuple[Section, ...]] = (
         ),
     ),
     Section(
-        "Model and dials",
+        "The dials",
         (
             Row("↑ ↓  /  ← →", "Choose a setting / change its level"),
             Row("Del", "Back to the pack's default"),

@@ -192,11 +192,6 @@ class Story(Base):
     persona_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("personas.id", ondelete="RESTRICT"), index=True
     )
-    model: Mapped[str | None] = mapped_column(String(200))
-    """The model this story plays on; None means the default."""
-    model_context: Mapped[int | None]
-    """The window that model was checked against when it was set, so the budget can be fitted
-    to it on every turn without reading the list again. None when nothing said."""
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     """Set when the story is deleted: it is hidden, and its rows stay."""
@@ -279,8 +274,6 @@ class Message(Base):
     model: Mapped[str | None] = mapped_column(String(200))
     """The model that wrote it; None means a person did — the reader's turns, and the opening."""
     provider: Mapped[str | None] = mapped_column(String(200))
-    fell_back_from: Mapped[str | None] = mapped_column(String(200))
-    """The story's own model, when it could not take this turn and the default wrote it."""
     prompt_tokens: Mapped[int | None]
     completion_tokens: Mapped[int | None]
     estimated_prompt_tokens: Mapped[int | None]

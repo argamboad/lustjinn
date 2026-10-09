@@ -18,7 +18,6 @@ import httpx2
 TOKEN = "t0ken"
 USERNAME = "allan"
 PASSWORD = "secret"
-DEFAULT_MODEL = "deepseek/deepseek-v4-flash"
 
 
 def message(sequence: int, role: str, text: str) -> dict[str, Any]:
@@ -29,7 +28,6 @@ def message(sequence: int, role: str, text: str) -> dict[str, Any]:
         "text": text,
         "model": "scripted/model" if role == "assistant" else None,
         "provider": None,
-        "fell_back_from": None,
         "sent_at": datetime(2026, 10, 7, 9, sequence % 60, tzinfo=UTC).isoformat(),
     }
 
@@ -41,7 +39,6 @@ def story(
     character_id: str | None = None,
     persona_id: str | None = None,
     persona: str | None = "Me",
-    model: str | None = None,
     created_at: datetime | None = None,
 ) -> dict[str, Any]:
     messages = [
@@ -55,7 +52,6 @@ def story(
         "character_name": character,
         "persona_id": persona_id,
         "persona_name": persona,
-        "model": model,
         "created_at": (created_at or datetime(2026, 10, 1, tzinfo=UTC)).isoformat(),
         "last_message_at": last["sent_at"] if last else None,
         "last_message_preview": last["text"][:200] if last else None,
@@ -77,18 +73,6 @@ def entry(name: str, text: str, opening: str | None = None) -> dict[str, Any]:
     }
 
 
-def choice(model: str, *, is_default: bool = False, ratio: str | None = None) -> dict[str, Any]:
-    return {
-        "id": model,
-        "is_default": is_default,
-        "listed": True,
-        "context_length": 128000,
-        "prompt_per_million": "0.1",
-        "completion_per_million": "0.3",
-        "prompt_price_ratio": ratio,
-    }
-
-
 def sse(name: str, data: object) -> bytes:
     return f"event: {name}\ndata: {json.dumps(data)}\n\n".encode()
 
@@ -105,12 +89,6 @@ class FakeServer:
             "snippets": [],
         }
         self.default_persona: dict[str, Any] | None = None
-        self.models: list[dict[str, Any]] = [
-            choice(DEFAULT_MODEL, is_default=True),
-            choice("thedrummer/anubis-70b", ratio="2.00"),
-            choice("mistralai/mistral-small", ratio="0.50"),
-        ]
-        self.models_unreadable = False
         self.pack: list[dict[str, Any]] = [
             {
                 "key": "lust",
@@ -210,7 +188,6 @@ class FakeServer:
             },
         ]
         self.dial_values: dict[str, dict[str, str]] = {}  # story id -> key -> value
-        self.story_models: dict[str, str | None] = {}
         self.requests: list[httpx2.Request] = []
         self.reply = "She looks up. *A pause.*"
         self.reply_pieces = 3
@@ -338,12 +315,6 @@ class FakeServer:
             return self._search(request)
         if path == "/dials":
             return httpx2.Response(200, json=self.pack)
-        if path == "/models":
-            if self.models_unreadable:
-                return httpx2.Response(
-                    503, json={"detail": "The model list could not be read: timed out."}
-                )
-            return httpx2.Response(200, json=self.models)
         return httpx2.Response(404, json={"detail": f"Nothing answers {request.method} {path}."})
 
     @staticmethod
@@ -401,8 +372,6 @@ class FakeServer:
             )
         if len(parts) >= 3 and parts[2] == "dials":
             return self._dials(found, parts, request)
-        if len(parts) == 3 and parts[2] == "model":
-            return self._model(found, request)
         if len(parts) == 3 and parts[2] == "export":
             return self._export(found, request)
         if len(parts) == 3 and parts[2] == "spend":
@@ -475,15 +444,6 @@ class FakeServer:
             )
             if persona is None:
                 return httpx2.Response(422, json={"detail": "There is no persona with that id."})
-        model = body.get("model")
-        if model is not None and model not in {m["id"] for m in self.models}:
-            return httpx2.Response(
-                422,
-                json={
-                    "detail": f"{model} is not available — the provider does not list it — so "
-                    f"it was not set. The story stays on {DEFAULT_MODEL}."
-                },
-            )
         texts = (character["opening"],) if character.get("opening") else ()
         created = self.add(
             str(body["name"]),
@@ -492,7 +452,6 @@ class FakeServer:
             character_id=character["id"],
             persona_id=None if persona is None else persona["id"],
             persona=None if persona is None else persona["name"],
-            model=model,
             created_at=datetime(2026, 10, 7, 12, tzinfo=UTC),
         )
         return httpx2.Response(201, json=created)
@@ -649,33 +608,6 @@ class FakeServer:
             return httpx2.Response(422, json={"detail": f"{dial['title']} takes something else."})
         values[dial["key"]] = accepted
         return httpx2.Response(200, json=self._dial_out(dial, values))
-
-    def _model(self, found: dict[str, Any], request: httpx2.Request) -> httpx2.Response:
-        own = self.story_models.get(found["id"], found.get("model"))
-        if request.method == "PUT":
-            wanted = json.loads(request.content).get("model")
-            if not wanted or wanted.lower() == DEFAULT_MODEL:
-                own = None
-                message = f"This story uses the default, {DEFAULT_MODEL}."
-            elif wanted not in {m["id"] for m in self.models}:
-                return httpx2.Response(
-                    422,
-                    json={
-                        "detail": f"{wanted} is not available — the provider does not list it — "
-                        f"so it was not set. The story stays on {own or DEFAULT_MODEL}."
-                    },
-                )
-            else:
-                own = wanted
-                message = f"This story now uses {wanted}."
-            self.story_models[found["id"]] = own
-            found["model"] = own
-        else:
-            message = None
-        return httpx2.Response(
-            200,
-            json={"model": own, "context": 128000, "default": DEFAULT_MODEL, "message": message},
-        )
 
     def _export(self, found: dict[str, Any], request: httpx2.Request) -> httpx2.Response:
         fmt = request.url.params.get("format", "markdown")

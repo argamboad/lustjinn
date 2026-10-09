@@ -105,12 +105,12 @@ continues around it. The `View.lustjinn` property exists because Textual types `
 ### The view, the frame, and the dialect
 
 Every screen extends `View`, which draws airp's frame around whatever the screen composes:
-the masthead (the server badge, the model, the breadcrumb of open screens), the body, a
+the masthead (the server badge, the breadcrumb of open screens), the body, a
 hairline, the legend and the status row.
 
 ```python
 def compose(self) -> ComposeResult:
-    yield Masthead(badge=self.lustjinn.badge, model=self.lustjinn.model_name)
+    yield Masthead(badge=self.lustjinn.badge)
     with Vertical(id="body"):
         yield from self.body()
     yield Hairline(id="footer-rule")
@@ -284,10 +284,8 @@ that pops itself before it runs the work, so the status lands on the list undern
 resume the list reloads quietly whenever the gate is open, which is the one place the app's
 `gate_open` is asked: signed in, with neither the lamp nor the sign-in screen on the stack.
 
-A new story is three pickers — character, persona with the default preselected, model — and a
-name defaulting to the character and the date. The model list is read in a worker and never
-waited for: a picker that has not heard back offers the default, and `Enter` on the last picker
-creates.
+A new story is two pickers — character, and persona with the default preselected — and a name
+defaulting to the character and the date; `Enter` on the last picker creates.
 
 ### The conversation
 
@@ -334,7 +332,7 @@ it. Editing opens the reader's own `$EDITOR` on a temporary file, with `app.susp
 the terminal over and taking it back; the tests hand the app an editor that needs no terminal.
 A save that meets a `409` shows the conflict screen with their text and *Replace it with mine*
 or *Take theirs*, chapter 4's version column again. The story's settings are airp's
-`ChatSettingsView`: the model and every dial of the pack, stepped or typed, staged and applied
+`ChatSettingsView`: every dial of the pack, stepped or typed, staged and applied
 together, with *Discard* and *Reload*.
 
 ### Everywhere: the palette, search, export, the phone
@@ -378,8 +376,8 @@ command line applied as explicit `replace()` calls. `platformdirs` answers
 Textual ships a **pilot**: `app.run_test()` runs the app headless at a size you choose, and
 the test presses keys, clicks and waits. Against it stands a fake server — httpx2's
 `MockTransport` answering the routes the client uses from memory, with switches for the
-failures the screens must survive (`asleep_for`, `down`, a revoked token, an unreadable model
-list, a model that fails). The tests script a server the way the API's tests script a model.
+failures the screens must survive (`asleep_for`, `down`, a revoked token, a model that
+fails). The tests script a server the way the API's tests script a model.
 
 ```python
 async def test_a_lost_server_sends_the_reader_back_to_the_lamp(app, server) -> None:

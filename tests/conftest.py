@@ -24,7 +24,7 @@ from sqlalchemy.pool import NullPool
 from lustjinn.auth import issue_token
 from lustjinn.db import get_session
 from lustjinn.main import app
-from lustjinn.openrouter import forget_catalogue, get_openrouter
+from lustjinn.openrouter import get_openrouter
 from lustjinn.settings import Settings, get_settings
 from scripts.seed_dummy import Dummy, load
 from tests.scripted_model import ScriptedModel
@@ -110,7 +110,6 @@ def settings(database_url: str) -> Settings:
 @pytest.fixture
 def model() -> ScriptedModel:
     """The model, answering from a script. Say what it answers before the call that needs it."""
-    forget_catalogue()  # the ten-minute cache would otherwise carry one test's list into the next
     return ScriptedModel()
 
 

@@ -426,21 +426,6 @@ async def test_with_nothing_set_the_request_carries_the_settings_and_no_penalty(
     assert "frequency_penalty" not in model.last
 
 
-async def test_creativity_is_mapped_onto_the_range_of_a_story_s_own_model(
-    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
-) -> None:
-    """The dial's 1.4 is "the wildest": for a finetune measured to hold to 0.9, that is 0.9."""
-    story = await a_played_story(session)
-    story.model = "thedrummer/cydonia-24b-v4.1"
-    await session.commit()
-    await client.put(f"/stories/{story.id}/dials/creativity", json={"value": "4"})
-    model.says("Hm.")
-
-    await send(client, story.id, "I come in.")
-
-    assert model.last["temperature"] == 0.9
-
-
 async def test_a_summary_stays_cold_whatever_creativity_says(
     client: httpx2.AsyncClient,
     session: AsyncSession,

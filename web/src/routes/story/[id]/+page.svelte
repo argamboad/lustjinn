@@ -46,7 +46,6 @@
 	let cutConfirm = $state(false);
 	let composer: Composer | undefined = $state();
 	let scroller: HTMLElement | undefined = $state();
-	let warnedFallback = false;
 	let noteId = 1;
 
 	const busy = $derived(pendingReply !== null);
@@ -59,7 +58,6 @@
 	const sub = $derived.by(() => {
 		if (!story) return '';
 		const parts = [story.character_name, story.persona_name ?? 'no persona', `turn ${turns}`];
-		if (story.model) parts.push(story.model.split('/').pop() ?? story.model);
 		return parts.join(' · ');
 	});
 
@@ -134,15 +132,6 @@
 						'Already answered',
 						'That message had been sent before; here is its reply.'
 					);
-				if (done.reply.fell_back_from && !warnedFallback) {
-					warnedFallback = true;
-					toasts.show(
-						'warn',
-						'Written by the default model',
-						`${done.reply.fell_back_from} could not take this turn. The story keeps its model for the next one.`,
-						10000
-					);
-				}
 				touchStoryList();
 				void extras?.refresh(); // the meters may have moved; the audit has a new line
 				break;

@@ -66,7 +66,7 @@ class View(Screen[None], HasCommands):
         self.narrow = False
 
     def compose(self) -> ComposeResult:
-        yield Masthead(badge=self.lustjinn.badge, model=self.lustjinn.model_name)
+        yield Masthead(badge=self.lustjinn.badge)
         with Vertical(id="body"):
             yield from self.body()
         yield Hairline(id="footer-rule")

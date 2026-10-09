@@ -1,13 +1,12 @@
-"""The story's settings: the model row first, the dials stepped and staged, Enter applies,
-Esc discards, a refusal leaves the row where the story really is."""
+"""The story's settings: the dials stepped and staged, Enter applies, Esc discards, a refusal
+leaves the row where the story really is."""
 
 from textual.pilot import Pilot
 
 from lustjinn_tui.api import Dial, DialLevel
 from lustjinn_tui.app import LustjinnApp
 from lustjinn_tui.conversation import ConversationScreen
-from lustjinn_tui.masthead import Masthead
-from lustjinn_tui.settings import MODEL_KEY, ChatSettingsScreen, describe, level_index
+from lustjinn_tui.settings import ChatSettingsScreen, describe, level_index
 from lustjinn_tui.status import Kind
 from lustjinn_tui.stories import StoriesScreen
 from tui_support import fake_server as fake
@@ -47,19 +46,16 @@ def test_describe_reads_a_value_the_way_the_row_shows_it() -> None:
     assert describe(toggle, "nope") == ("Off", "Whether.")
 
 
-async def test_the_rows_are_the_model_then_the_enabled_dials(
-    app: LustjinnApp, server: fake.FakeServer
-) -> None:
+async def test_the_rows_are_the_enabled_dials(app: LustjinnApp, server: fake.FakeServer) -> None:
     told = server.add("Tale", "An opening.")
     server.dial_values[told["id"]] = {"lust": "3"}
     async with app.run_test(size=(100, 36)) as pilot:
         screen = await open_settings(app, pilot)
         keys = [row.key for row in screen.settings.rows]
-        assert keys == [MODEL_KEY, "lust", "inner-thoughts", "pov", "language"]  # no agency-guard
-        assert screen.settings.applied == {MODEL_KEY: fake.DEFAULT_MODEL, "lust": "3"}
+        assert keys == ["lust", "inner-thoughts", "pov", "language"]  # no agency-guard
+        assert screen.settings.applied == {"lust": "3"}
         drawn = screen.settings.render().plain
-        assert "▌ Model" in drawn
-        assert "Default — deepseek/deepseek-v4-flash" in drawn
+        assert "▌ Lust" in drawn
         assert "○─○─○─●─○  Explicit" in drawn
         assert "Not set" in drawn
         assert screen.legend.text.startswith(
@@ -74,17 +70,14 @@ async def test_stepping_stages_and_enter_applies_everything_at_once(
     told = server.add("Tale", "An opening.")
     async with app.run_test(size=(100, 36)) as pilot:
         screen = await open_settings(app, pilot)
-        await pilot.press("right")  # the model: the first choice after the default
+        await pilot.press("right")  # lust: unset starts from the middle, then one up
         await pilot.pause()
-        assert screen.settings.staged[MODEL_KEY] == "thedrummer/anubis-70b"
+        assert screen.settings.staged["lust"] == "3"
         assert screen.settings.is_dirty
         assert screen.legend.text.startswith(
             " ← → Change   ↑ ↓ Choose setting   Del Clear   Enter Apply"
         )
-        assert "(was Default" in screen.settings.render().plain
-        await pilot.press("down", "right")  # lust: unset starts from the middle, then one up
-        await pilot.pause()
-        assert screen.settings.staged["lust"] == "3"
+        assert "(was Not set" in screen.settings.render().plain
         await pilot.press("down", "left")  # inner thoughts: either arrow flips it
         await pilot.pause()
         assert screen.settings.staged["inner-thoughts"] == "true"
@@ -100,17 +93,12 @@ async def test_stepping_stages_and_enter_applies_everything_at_once(
             "inner-thoughts": "true",
             "pov": "third-past",
         }
-        assert server.story_models[told["id"]] == "thedrummer/anubis-70b"
         assert not screen.settings.is_dirty
         assert screen.status_line.kind == Kind.SUCCESS
-        assert screen.status_line.text.startswith("Applied: Model → thedrummer/anubis-70b")
-        assert "Lust → Explicit" in screen.status_line.text
+        assert screen.status_line.text.startswith("Applied: Lust → Explicit")
         await pilot.press("escape")
         await pilot.pause()
         assert isinstance(app.screen, ConversationScreen)
-        shown = str(app.screen.query_one(Masthead).query_one("#model").render())
-        assert shown.endswith("thedrummer/anubis-70b")
-        assert app.model_name == "thedrummer/anubis-70b"
 
 
 async def test_esc_discards_staged_changes_before_it_leaves_and_del_clears(
@@ -120,7 +108,7 @@ async def test_esc_discards_staged_changes_before_it_leaves_and_del_clears(
     server.dial_values[told["id"]] = {"lust": "1"}
     async with app.run_test(size=(100, 36)) as pilot:
         screen = await open_settings(app, pilot)
-        await pilot.press("down", "right", "right")
+        await pilot.press("right", "right")
         await pilot.pause()
         assert screen.settings.staged["lust"] == "3"
         await pilot.press("escape")
@@ -152,13 +140,15 @@ async def test_a_text_dial_is_typed_and_a_refusal_puts_the_row_back(
         await pilot.press(*"Spanish", "enter")
         await pilot.pause()
         assert screen.settings.staged["language"] == "Spanish"
-        await pilot.press("home", "right", "right")  # a model the server stops listing
+        await pilot.press("home", "down", "down", "left")  # pov: the last option
         await pilot.pause()
-        server.models.pop()
+        assert screen.settings.staged["pov"] == "third-past"
+        pov = next(d for d in server.pack if d["key"] == "pov")
+        pov["options"] = [o for o in pov["options"] if o["key"] != "third-past"]  # gone meanwhile
         await pilot.press("enter")
         await pilot.pause(0.3)
         assert server.dial_values[told["id"]] == {"language": "Spanish"}
-        assert screen.settings.staged[MODEL_KEY] == fake.DEFAULT_MODEL  # back to what it has
+        assert "pov" not in screen.settings.staged  # back to what it has: not set
         assert screen.status_line.kind == Kind.WARNING
-        assert "is not available" in screen.status_line.text
+        assert "Point of view takes something else" in screen.status_line.text
         assert not screen.settings.is_dirty

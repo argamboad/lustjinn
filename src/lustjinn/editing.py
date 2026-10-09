@@ -70,7 +70,7 @@ async def branch(session: AsyncSession, source: Story, through: Message, name: s
     """Copies the story up to `through`, inclusive, with the memory those turns built.
 
     - Live messages up to the point keep their sequence numbers; hidden ones, request hashes
-      and fallbacks do not come. Their embeddings are carried, not recomputed: the text is
+      do not come. Their embeddings are carried, not recomputed: the text is
       identical, so the vector is too.
     - Only summaries wholly inside the branch: one that straddles the point describes turns
       the copy does not have.
@@ -86,8 +86,6 @@ async def branch(session: AsyncSession, source: Story, through: Message, name: s
         name=name,
         character_id=source.character_id,
         persona_id=source.persona_id,
-        model=source.model,
-        model_context=source.model_context,
     )
     session.add(copy)
 

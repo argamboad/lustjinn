@@ -11,8 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn.db import get_session
 from lustjinn.models import Character, Message, Persona, Role, Story
-from lustjinn.openrouter import OpenRouter, get_openrouter
-from lustjinn.settings import Settings, get_settings
 
 router = APIRouter(prefix="/stories", tags=["stories"])
 
@@ -20,7 +18,6 @@ router = APIRouter(prefix="/stories", tags=["stories"])
 Session = Annotated[AsyncSession, Depends(get_session)]
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
-ModelName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 PREVIEW_LENGTH = 200
 
@@ -29,7 +26,6 @@ class NewStory(BaseModel):
     name: Name
     character_id: uuid.UUID
     persona_id: uuid.UUID | None = None
-    model: ModelName | None = None
 
 
 class Rename(BaseModel):
@@ -43,7 +39,6 @@ class StoryOut(BaseModel):
     character_name: str
     persona_id: uuid.UUID | None
     persona_name: str | None
-    model: str | None
     created_at: datetime
     last_message_at: datetime | None
     """When the newest visible message was sent; None for a story with no messages yet."""
@@ -61,9 +56,6 @@ class MessageOut(BaseModel):
     text: str
     model: str | None
     provider: str | None
-    fell_back_from: str | None = None
-    """Set on a reply the default wrote because the story's own model could not: the clients
-    show a one-time warning, since the voice is a different model's."""
     sent_at: datetime
 
 
@@ -111,7 +103,6 @@ def _out(
         character_name=character_name,
         persona_id=story.persona_id,
         persona_name=persona_name,
-        model=story.model,
         created_at=story.created_at,
         last_message_at=last_message_at,
         last_message_preview=None if last_text is None else last_text[:PREVIEW_LENGTH],
@@ -137,48 +128,18 @@ async def visible_story(session: AsyncSession, story_id: uuid.UUID) -> Story:
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)
-async def create_story(
-    new: NewStory,
-    session: Session,
-    openrouter: Annotated[OpenRouter, Depends(get_openrouter)],
-    settings: Annotated[Settings, Depends(get_settings)],
-) -> StoryWithMessages:
-    """Starts a story. If the character has an opening, it becomes the story's first message.
-    A model named here is checked as a change of model would be."""
-    from lustjinn import story_model  # here, not at the top: story_model imports this module
-
+async def create_story(new: NewStory, session: Session) -> StoryWithMessages:
+    """Starts a story. If the character has an opening, it becomes the story's first message."""
     character = await session.get(Character, new.character_id)
     if character is None:
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no character with that id."
         )
-    persona = None
-    if new.persona_id is not None:
-        persona = await session.get(Persona, new.persona_id)
-        if persona is None:
-            raise HTTPException(
-                status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no persona with that id."
-            )
-    checked = None
-    if new.model is not None:
-        checked = await story_model.check(
-            session,
-            openrouter,
-            settings,
-            new.model,
-            character=character,
-            persona=persona,
-            story_id=None,
-            keeping=None,
+    if new.persona_id is not None and await session.get(Persona, new.persona_id) is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, "There is no persona with that id."
         )
-
-    story = Story(
-        name=new.name,
-        character_id=character.id,
-        persona_id=new.persona_id,
-        model=None if checked is None else checked.model,
-        model_context=None if checked is None else checked.context,
-    )
+    story = Story(name=new.name, character_id=character.id, persona_id=new.persona_id)
     session.add(story)
     if character.opening:
         # Written by a person, so no model: that is how a reroll later knows to leave it alone.
