@@ -88,11 +88,40 @@ name, not by path. `StrEnum` is an enum whose members *are* their strings, which
 when the values live in JSON and in a database column.
 :::
 
-Two decisions worth knowing. Creativity's temperatures are mapped onto a story model's measured
-range, as chapter 3 promised, and summaries stay at 0.3 whatever Creativity says. And the
+Two decisions worth knowing. Summaries stay at 0.3 whatever Creativity says. And the
 response-length dial's ceiling is also the room the summariser reserves (`reply_tokens`), so the
 memory and the builder agree about how much room the transcript has — the donor left that one
 open, and two components disagreeing about room is how it once lost twenty-four turns.
+
+### Saying what the dials are
+
+The rendered lines first went out bare, as airp sent them: `Lust: Unhinged — no limits, no
+pacing, maximum intensity every message.`, right after a card thousands of tokens long. Nothing
+said whether that was an order, a mood or a note, nor which side wins when the card describes
+someone reserved. The model split the difference, and the card mostly won — where the reader
+expected what other apps do, a character who *adapts* to the dial in their own way. So the layer
+now goes under a frame, as the persona always has (#142):
+
+```python
+DIRECTIVES_FRAME = (
+    "The reader has set how this story is told. These settings outrank anything in the "
+    "character's description that disagrees with them. The character stays who they are, in "
+    "voice, history and manner, and acts the settings out through that: a shy character at the "
+    "highest heat is shy and losing that fight, not suddenly someone else.\n\n"
+)
+```
+
+It is chapter 3's rule again — every instruction sent to the model says what it is — applied to
+the one layer that had escaped it. The frame is constant text, so it costs sixty-seven tokens a
+turn and nothing in cache: it changes only when a dial does, which is when the layer changed
+anyway. It is sent only when a dial says something; a story with no dials set gets no frame.
+
+::: dotnet
+`layers.directives and DIRECTIVES_FRAME + layers.directives` is a null-and-empty guard in one
+expression: `and` returns its left side when that is falsy (`None`, `""`) and its right side
+otherwise — `string.IsNullOrEmpty(d) ? d : Frame + d` in C#. Python's `and`/`or` return an
+operand, not a `bool`, which is why the idiom works.
+:::
 
 ## Meters: a value the model draws and the app reads back
 
