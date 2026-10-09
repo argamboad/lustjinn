@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ValidationError
 
 from lustjinn import (
+    asides,
+    audit,
     auth,
     commands,
     dials,
@@ -135,6 +137,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(stories.router, dependencies=[Depends(auth.require_user)])
     app.include_router(commands.router, dependencies=[Depends(auth.require_user)])
     app.include_router(turns.router, dependencies=[Depends(auth.require_user)])
+    app.include_router(asides.router, dependencies=[Depends(auth.require_user)])
+    app.include_router(audit.router, dependencies=[Depends(auth.require_user)])
     app.include_router(library.router, dependencies=[Depends(auth.require_user)])
     app.include_router(dials.router, dependencies=[Depends(auth.require_user)])
     app.include_router(trackers.router, dependencies=[Depends(auth.require_user)])

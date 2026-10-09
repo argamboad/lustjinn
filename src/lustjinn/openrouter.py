@@ -355,6 +355,12 @@ def _decimal(source: Json, key: str) -> Decimal | None:
     return Decimal(value) if isinstance(value, int) and not isinstance(value, bool) else None
 
 
+def reasoning(settings: Settings) -> bool | None:
+    """The `reasoning` flag for a reply or an answer: off unless the settings say otherwise;
+    None sends nothing and leaves it to the model. Summaries and facts never send it."""
+    return None if settings.think_before_replying else False
+
+
 def get_openrouter(settings: Annotated[Settings, Depends(get_settings)]) -> OpenRouter:
     """The client an endpoint asks for. Tests override this with one that answers from a script."""
     return OpenRouter(settings, get_http())

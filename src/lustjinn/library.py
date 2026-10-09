@@ -196,6 +196,12 @@ async def default_persona(session: AsyncSession) -> Persona | None:
     return await session.get(Persona, found.default_persona_id)
 
 
+async def persona_of(session: AsyncSession, story: Story) -> Persona | None:
+    """The persona a story plays as: its own, or the default for a story that names none, or
+    nobody. `story.persona` must be loaded."""
+    return story.persona if story.persona is not None else await default_persona(session)
+
+
 async def _one(session: AsyncSession, shelf: Shelf[Any], entry_id: uuid.UUID) -> LibraryEntry:
     entry = await session.get(shelf.model, entry_id)
     if entry is None:

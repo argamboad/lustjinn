@@ -442,6 +442,13 @@ async def values_of(session: AsyncSession, story_id: uuid.UUID) -> dict[str, str
     return {row.key: row.value for row in rows}
 
 
+async def of_story(session: AsyncSession, story_id: uuid.UUID) -> tuple[str | None, Sampler]:
+    """A story's dials: rendered for the directives layer, and resolved for the sampler."""
+    pack = shipped()
+    values = await values_of(session, story_id)
+    return directives(pack, values), sampler(pack, values)
+
+
 # --- the API --------------------------------------------------------------------------------------
 
 router = APIRouter(tags=["dials"])

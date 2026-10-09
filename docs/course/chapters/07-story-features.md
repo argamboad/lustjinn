@@ -39,6 +39,24 @@ and the handler for one feature next to each other, instead of a Controllers fol
 folder and a Models folder each holding a slice of every feature.
 :::
 
+The rule had one exception for a while: `turns.py`. Every command `/send` dispatches grew
+inside it — `/ask` and its list, `/recap`, `/fact`, `/tracker`, and the audit — until it was
+725 lines that every change touched (#133). They now live with their nouns: `asides.py` (new),
+`audit.py` (new), `recap.py`, `facts.py`, `trackers.py`, and `turns.py` keeps send, carry on and
+reroll, at 403 lines. The split had one trap. `/send` imports the modules it dispatches to, so
+none of them may import `turns` back — Python resolves imports as it runs them, and a cycle
+fails at start-up with half a module defined. What they shared moved *down* instead: the events
+and the streaming response into `streams.py`, and each helper `turns.py` had kept private to
+the module of its noun — the loaded story and its visible messages to `stories`, the persona in
+force to `library`, a story's dials to `dials`.
+
+::: dotnet
+C# resolves types across a whole assembly at compile time, so two classes may reference each
+other freely; Python modules are objects built top to bottom when first imported, and `a`
+importing `b` importing `a` finds `a` half-built. The cure is the one you would use to break a
+project-reference cycle: move what both need into a third module that depends on neither.
+:::
+
 ## Dials: a pack of data
 
 "Be more varied", written into a prompt, is the weakest way to move a model. Temperature moves
@@ -174,10 +192,10 @@ One small trick made the commands that answer *without* a model call fit the str
 endpoint. `/recap`, `/tracker` and `/fact` answer in a single `said` event, so a client has one
 code path for everything `/send` returns; but a refusal (a word where a number should be) must
 be a 4xx, not a stream of one. So the generator is run up to its first event *before* the
-response opens:
+response opens (`streams.started`):
 
 ```python
-async def _started(events: AsyncIterator[str]) -> AsyncIterator[str]:
+async def started(events: AsyncIterator[str]) -> AsyncIterator[str]:
     first = await anext(events)  # a refusal raises here, as an HTTPException
 
     async def rest() -> AsyncIterator[str]:
