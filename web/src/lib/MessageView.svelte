@@ -63,9 +63,6 @@
 	{/if}
 	{#if !mine && !streaming}
 		<footer class="meta">
-			{#if message.fell_back_from}
-				<span class="chip warn">written by the default</span>
-			{/if}
 			{#if message.model}<span class="k">{shortModel(message.model)}</span>{/if}
 			{#if newest && onreroll}
 				<button type="button" class="link" onclick={onreroll}>Reroll</button>
@@ -127,10 +124,6 @@
 		padding: 1px 7px;
 		border-radius: 6px;
 		background: var(--surface-2);
-	}
-	.chip.warn {
-		font-size: 0.66rem;
-		padding: 1px 7px;
 	}
 	.link {
 		appearance: none;

@@ -17,7 +17,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
-from lustjinn import dials, memory, story_model, trackers
+from lustjinn import dials, memory, trackers
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
 from lustjinn.models import Fact, Message, Story, Summary
@@ -84,10 +84,9 @@ async def rebuild(
     await session.execute(delete(Fact).where(Fact.story_id == story.id, Fact.pinned.is_(False)))
     await session.commit()
 
-    # Composed as a turn would be — the dials' layer, the meters, the fitted budget — so the
-    # batches fall where playing would have put them.
+    # Composed as a turn would be — the dials' layer, the meters — so the batches fall where
+    # playing would have put them.
     persona = story.persona if story.persona is not None else await default_persona(session)
-    fitted = story_model.fitted(settings, story)
     pack = dials.shipped()
     values = await dials.values_of(session, story.id)
     directives = dials.directives(pack, values)
@@ -106,7 +105,7 @@ async def rebuild(
         await memory.compose(
             session,
             openrouter,
-            fitted,
+            settings,
             story,
             persona,
             history,

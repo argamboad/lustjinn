@@ -106,11 +106,13 @@ message is legitimate and the retry path needs it (step 3).
   1.0, max tokens 1024, key from `OPENROUTER_API_KEY`. Shipped alternative models and their
   temperatures (0.3–0.9 for the finetunes) in `ModelOptions.cs`.
 - **Temperature per model:** `share = (t − 0.6) / 0.8; mapped = min + share × (max − min)`, clamped to
-  `[0.05, max]`, rounded to 3 decimals — applied only to a story's own model.
+  `[0.05, max]`, rounded to 3 decimals — applied only to a story's own model. *Taken out with the
+  model per story (#140).*
 - **Reasoning off** on Reply and Aside only; Summary and Facts never send the field.
 - **Model list:** `GET {base}/models` → `id`, `context_length`, `pricing.prompt/completion` (per token;
   ×1,000,000 for per-million). Describe a choice against the default: ≥1.5× "≈N× the default",
-  ≤0.67× "≈1/N of the default", else "about the default".
+  ≤0.67× "≈1/N of the default", else "about the default". *Taken out with the model per story
+  (#140).*
 - **Embeddings:** `POST {base}/embeddings` `{model, input: [...]}`, vectors ordered by `data[].index`;
   default `openai/text-embedding-3-small`, 1536 dimensions (the donor never checks the dimension — do).
 
@@ -197,6 +199,7 @@ tests), `tests/ModelRouterTests.cs`.
   stop at the first message that would overflow.
 - **Story window:** when the story has its own model, `budget = max(window − reply ceiling, 2048)` if
   smaller than the configured budget; when compression failed, budget = window or unlimited.
+  *The story's window was taken out with the model per story (#140).*
 - **Recall cap:** `budget × RecallPercent(10, 0–50) / 100`; `RecallCount` 4 (0–20); threshold 0.35.
 - **Audit:** `"{layer} {tokens}[ ({n} dropped)] · … · total {est}/{budget}"`, plus "; budget N (the
   story's model)" when shrunk. Stored with `EstimatedPromptTokens`.
@@ -353,6 +356,11 @@ in `RegenerateDirective`; **no directive may contain "previous reply"**; all nin
 Tests: `tests/RegenerateDirectiveTests.cs`.
 
 ### A model per story (#62)
+
+**Built, then taken out (#140). Do not port it again.** In airp the choice gave nothing back —
+the most explicit model wrote about like the default, the larger ones cost several times as much
+— and every rule below existed only to keep the choice from breaking a story. Every story plays
+on the default. What follows is the donor, kept for the record.
 
 **Donors:** `LCP.SetModelAsync` (2224–2322), `LCP.CompleteForStoryAsync` (2394–2446), ADR 0019.
 Catalogue cached 10 minutes; a model not listed is refused ("The story stays on X"); the story's

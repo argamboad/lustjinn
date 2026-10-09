@@ -57,7 +57,9 @@ class Settings(BaseSettings):
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     model: str = "deepseek/deepseek-v4-flash"
-    """The model that writes the replies. A story may name its own."""
+    """The model that writes every story's replies. One for all, on purpose: a model per story
+    was tried and removed (#140) — the card, the dials and the host change the writing; the
+    model choice only added settings to keep it from breaking a story."""
 
     temperature: float = Field(default=1.0, ge=0, le=2)
     """Sampling temperature for a reply. Higher wanders further from the obvious."""
@@ -102,23 +104,6 @@ class Settings(BaseSettings):
 
     recall_threshold: float = Field(default=0.35, ge=0, le=1)
     """The least cosine similarity a turn needs to be recalled. Below it, nothing is."""
-
-    model_choices: list[str] = [
-        "cognitivecomputations/dolphin-mistral-24b-venice-edition",
-        "thedrummer/cydonia-24b-v4.1",
-        "anthracite-org/magnum-v4-72b",
-        "thedrummer/unslopnemo-12b",
-        "deepseek/deepseek-v4-pro",
-        "z-ai/glm-4.6",
-    ]
-    """The models a story may be offered, as a JSON list. The shipped six were each tried on
-    2026-10-01 with one scene at four temperatures: four roleplay finetunes chosen to be more
-    willing than the default, and two larger general models that wrote the scene once their
-    reasoning was off. Labelled with the provider's list prices, to compare by only."""
-
-    model_windows: dict[str, int] = {}
-    """The context a model can really use, by id, where it is smaller than the provider lists —
-    as a JSON object. A correction here is believed over the list and over the shipped ones."""
 
     think_before_replying: bool = False
     """Whether a reply may spend tokens reasoning first. Off sends `reasoning: {enabled: false}`:

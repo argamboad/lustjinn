@@ -127,7 +127,7 @@ settings (default_persona_id → personas)
 
 stories  (id, name, character_id → characters ON DELETE RESTRICT,
                     persona_id   → personas   ON DELETE RESTRICT NULL,
-                    model NULL, created_at, deleted_at NULL)
+                    created_at, deleted_at NULL)
 
 messages (id, story_id, sequence, role, text, request_hash UNIQUE NULL,
           model, provider, prompt_tokens, completion_tokens,
@@ -221,6 +221,11 @@ Each was measured on real stories and cost real time. Do not re-learn them.
   empty 3 times in 5 at a 400-token ceiling, every token spent thinking.
 - **Temperature depends on the model.** Roleplay finetunes wrote cleanly up to 0.9 and turned to
   token soup at 1.3; DeepSeek holds at 1.3.
+- **One model for every story.** airp's choice of six models per story gave nothing back: the
+  one billed as the most explicit wrote about like the default, and the larger ones cost several
+  times as much for no difference a reader could name. The card, the dials and the host change
+  the writing. Lustjinn built the choice in step 7 and took it out (#140); changing the default
+  is one setting.
 - **OpenRouter spreads a model across hosts**, and they differ: some cache prompts and some do not,
   some return empty replies or garbage. Store `provider` per reply, and allow ignoring or
   preferring hosts by slug.
@@ -254,7 +259,8 @@ decision records to port from.
 6. **The memory.** Batched summaries, pgvector retrieval, facts, background retries. *Teaches:
    background work, vector queries, larger design.*
 7. **Story features.** What airp does beyond the core loop, as API features both clients use:
-   `/do`, carry on, `/focus`, regenerate with a reason, a model per story with fallback, dials,
+   `/do`, carry on, `/focus`, regenerate with a reason, a model per story with fallback (taken out
+   again, #140), dials,
    meters, branching, delete-from, search, export, cost reports, editable facts, memory rebuild,
    purge, `/recap`. *Teaches: growing an API feature by feature on the foundations of 2–6.*
 8. **The SvelteKit PWA.** A design system in dark and light, approved by the owner before the

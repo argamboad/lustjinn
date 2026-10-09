@@ -7,7 +7,6 @@ loses what was written, and a retry of the same words finds it instead of storin
 """
 
 import hashlib
-import logging
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -31,18 +30,16 @@ from lustjinn import (
     recap,
     regenerate,
     snippets,
-    story_model,
     trackers,
 )
 from lustjinn.db import get_session
 from lustjinn.library import default_persona
 from lustjinn.models import Aside, Message, Persona, Role, Snippet, SpendKind, Story
-from lustjinn.openrouter import ModelError, OpenRouter, Reply, get_openrouter, temperature_for
+from lustjinn.openrouter import ModelError, OpenRouter, Reply, get_openrouter
 from lustjinn.settings import Settings, get_settings
 from lustjinn.sse import format_event
 from lustjinn.stories import MessageOut
 
-log = logging.getLogger(__name__)
 router = APIRouter(prefix="/stories", tags=["turns"])
 
 # scope="request": the session stays open until the response has been sent. The default would
@@ -242,13 +239,6 @@ async def _next_sequence(session: AsyncSession, story_id: uuid.UUID) -> int:
     return (highest or 0) + 1
 
 
-def _choice(story: Story, settings: Settings, temperature: float) -> tuple[str, float]:
-    """The model a story plays on, and the temperature mapped onto its range when it has one."""
-    if story.model is None:
-        return settings.model, temperature
-    return story.model, temperature_for(story.model, temperature)
-
-
 def _reasoning(settings: Settings) -> bool | None:
     """Off unless the settings say otherwise; None sends nothing and leaves it to the model."""
     return None if settings.think_before_replying else False
@@ -299,10 +289,8 @@ async def reply(
     `instruction` is this turn's direction, if the reader gave one: the last layer of the
     prompt, and never a message.
     """
-    # The budget fits the story's model, if it has one with a smaller window. Then the dials:
-    # their text is a layer of the prompt, and their ceiling is room the memory must reserve.
-    # Then the memory — a summary if the story no longer fits — then the prompt is built.
-    settings = story_model.fitted(settings, story)
+    # The dials first: their text is a layer of the prompt, and their ceiling is room the memory
+    # must reserve. Then the memory — a summary if the story no longer fits — then the prompt.
     directives, knobs = await _dialled(session, story)
     ceiling = knobs.max_tokens or settings.max_tokens
     meters = await trackers.of(session, story.id)
@@ -318,32 +306,12 @@ async def reply(
         instruction=instruction,
         reply_tokens=ceiling,
     )
-    asked = settings.temperature if knobs.temperature is None else knobs.temperature
-    model, temperature = _choice(story, settings, asked)
-    fell_back_from: str | None = None
-    # A story's model with a smaller window than this prompt cannot take the turn: handed more
-    # than it was trained for, it answers in token soup. The default writes it instead, before
-    # anything is sent, and the reply says so.
-    if (
-        story.model is not None
-        and story.model_context is not None
-        and built.estimated_tokens > story.model_context - ceiling
-    ):
-        log.warning(
-            "%s cannot read this prompt (%d tokens against %d); the default wrote the turn.",
-            story.model,
-            built.estimated_tokens,
-            story.model_context - ceiling,
-        )
-        fell_back_from, model, temperature = story.model, settings.model, asked
     written: Reply | None = None
-
-    async def relay(model: str, temperature: float) -> AsyncIterator[str]:
-        nonlocal written
+    try:
         async for piece in openrouter.stream(
             built.messages,
-            model=model,
-            temperature=temperature,
+            model=settings.model,
+            temperature=settings.temperature if knobs.temperature is None else knobs.temperature,
             max_tokens=ceiling,
             frequency_penalty=knobs.frequency_penalty,
             reasoning=_reasoning(settings),
@@ -352,21 +320,6 @@ async def reply(
                 written = piece
             else:
                 yield format_event("delta", {"text": piece})
-
-    try:
-        try:
-            async for event in relay(model, temperature):
-                yield event
-        except ModelError as error:
-            # A model with no host today — and only that — hands the turn to the default; the
-            # story keeps its model and tries it again next turn. Anything else is reported,
-            # not retried: a rejected key or an empty account would refuse the default too.
-            if fell_back_from is not None or model == settings.model or not error.no_such_model:
-                raise
-            log.warning("%s is not available (%s); the default wrote the turn.", model, error)
-            fell_back_from, model, temperature = model, settings.model, asked
-            async for event in relay(model, temperature):
-                yield event
     except ModelError as error:
         if restore is not None:
             restore.deleted_at = None
@@ -390,7 +343,6 @@ async def reply(
         text=written.text.strip(),
         model=written.model,
         provider=written.provider,
-        fell_back_from=fell_back_from,
         prompt_tokens=written.prompt_tokens,
         completion_tokens=written.completion_tokens,
         # The estimate beside the figure the provider reported: the one way to know whether the
@@ -490,7 +442,6 @@ async def ask(
     grounded in exactly what the character can see, and on a caching host it is nearly free.
     Nothing goes into `messages`: an asking is not a turn.
     """
-    settings = story_model.fitted(settings, story)
     history = await _visible(session, story.id)
     # The same compose as a turn — the dials' text and the room their ceiling takes included —
     # so the answer is grounded in exactly what the character can see, and so a question can
@@ -509,13 +460,12 @@ async def ask(
         instruction=context.ask_directive(question),
         reply_tokens=knobs.max_tokens or settings.max_tokens,
     )
-    model, temperature = _choice(story, settings, ASIDE_TEMPERATURE)
     answered: Reply | None = None
     try:
         async for piece in openrouter.stream(
             built.messages,
-            model=model,
-            temperature=temperature,
+            model=settings.model,
+            temperature=ASIDE_TEMPERATURE,
             max_tokens=ASIDE_MAX_TOKENS,
             reasoning=_reasoning(settings),
         ):

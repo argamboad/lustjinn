@@ -72,9 +72,8 @@ are read before anything is stored: `/ask <question>` asks about the story out o
 How a story is written is set per story: `/dials` lists the pack and `/stories/{id}/dials` holds
 the story's values (each dial reaches the prompt or the sampler, never the transcript);
 `/stories/{id}/trackers` holds its meters, drawn by the model at the end of each reply and read
-back; `/models` lists the models a story may play on with their prices, and `PUT
-/stories/{id}/model` changes the story's — checked against the provider's list and the model's
-window first, and falling back to the default on a turn it cannot take.
+back. Every story plays on the configured model (`LUSTJINN_MODEL`): a model per story was
+built and taken out again (#140).
 
 A story can be taken two ways or cut back: `POST /stories/{id}/branch` copies it up to a turn with the memory those turns built, and `DELETE /stories/{id}/messages/{message_id}` hides a turn and everything after it, memory included — the rows stay. `GET /search?q=` finds where a phrase was said, across stories or inside one; `GET /stories/{id}/export?format=` renders the transcript as Markdown, JSON or text; `GET /spend` and `GET /stories/{id}/spend` report what the ledger holds, discarded replies and unpriced calls told apart. `/stories/{id}/facts` lists, pins and retires what the story believes (`/fact <statement>` pins from the composer); `POST /stories/{id}/memory/rebuild` makes the summaries and facts again from the transcript; and `POST /stories/{id}/purge` erases a deleted story for good, keeping only its spend.
 

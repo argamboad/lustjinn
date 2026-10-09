@@ -1,5 +1,5 @@
 """Starting a story from inside the terminal (``Views/NewChatView.cs``): a name, a character and
-a persona picked from the library, a model picked from the configured choices.
+a persona picked from the library. Every story plays on the default model (#140).
 
 The pickers offer names, never contents, because that is what a story stores: the ids go to
 the database, the cards stay in the library, and editing a card later reaches this story too.
@@ -8,7 +8,7 @@ whole, because whether this is the right person to walk into that place is a que
 both at once — and the text is going into every prompt anyway, so showing it costs nothing.
 
 The donor also wrote the opening here; the API takes it from the character instead (#55), so
-the form stops at the model.
+the form stops at the persona.
 
 .NET readers: a form with a focus chain. Textual walks it with Tab on its own; the pickers are
 focusable widgets that handle ``←``/``→`` themselves and post a message when they change, the
@@ -31,7 +31,7 @@ from textual.message import Message
 from textual.widget import Widget
 from textual.widgets import Input, Static
 
-from lustjinn_tui.api import ApiError, Choice, Defaults, Entry, Story, UnreachableError
+from lustjinn_tui.api import Defaults, Entry, Story
 from lustjinn_tui.confirm import ConfirmScreen
 from lustjinn_tui.conversation import ConversationScreen
 from lustjinn_tui.hairline import Hairline
@@ -196,7 +196,6 @@ class NewStoryScreen(View):
         self._characters: list[Entry] = []
         self._personas: list[Entry] = []
         self._defaults = Defaults()
-        self._models: list[Choice] = []
         self._touched_pick = False
 
     def body(self) -> ComposeResult:
@@ -206,7 +205,6 @@ class NewStoryScreen(View):
                 yield Input(placeholder="how it appears in your list", id="name", compact=True)
             yield Picker("Character", ["(reading the library…)"], id="pick-character")
             yield Picker("Persona", ["(default)"], id="pick-persona")
-            yield Picker("Model", ["(default)"], id="pick-model")
             yield Hairline()
         with Horizontal(id="panels"):
             yield Panel("Character preview", id="world")
@@ -234,12 +232,6 @@ class NewStoryScreen(View):
         return self._personas[index - 1] if index > 0 else None
 
     @property
-    def model(self) -> Choice | None:
-        """The picked model; None is the default slot."""
-        index = self.picker("model").index
-        return self._models[index - 1] if index > 0 else None
-
-    @property
     def touched(self) -> bool:
         return bool(self.query_one("#name", Input).value) or self._touched_pick
 
@@ -263,21 +255,6 @@ class NewStoryScreen(View):
         )
         await self._describe_character()
         await self._describe_persona()
-        # The prices beside the models come from the provider's list: read on arrival and never
-        # waited for. The form works without them and says only "(default)".
-        self.run_worker(self._read_models, exclusive=False)
-
-    async def _read_models(self) -> None:
-        try:
-            choices = await self.lustjinn.api.models()
-        except ApiError, UnreachableError:
-            return
-        self._models = [c for c in choices if not c.is_default]
-        default = next((c.id for c in choices if c.is_default), None)
-        self.picker("model").set_choices(
-            [f"(default: {default})" if default else "(default)"]
-            + [c.describe() for c in self._models]
-        )
 
     @on(Picker.Changed, "#pick-character")
     async def _character_picked(self) -> None:
@@ -287,10 +264,6 @@ class NewStoryScreen(View):
     async def _persona_picked(self) -> None:
         self._touched_pick = True
         await self._describe_persona()
-
-    @on(Picker.Changed, "#pick-model")
-    def _model_picked(self) -> None:
-        self._touched_pick = True
 
     async def _describe_character(self) -> None:
         character = self.character
@@ -326,7 +299,7 @@ class NewStoryScreen(View):
     def _picker_entered(self, event: Picker.Submitted) -> None:
         """Enter walks the fields, because that is what typing a form feels like; on the last
         one it creates."""
-        if event.picker.id == "pick-model":
+        if event.picker.id == "pick-persona":
             self.action_create()
         else:
             self.lustjinn.action_focus_next()
@@ -364,14 +337,13 @@ class NewStoryScreen(View):
             self.status("The library has no characters yet. Add one first.", Kind.WARNING)
             return
         name = self.query_one("#name", Input).value.strip() or default_name(character.name)
-        persona, model = self.persona, self.model
+        persona = self.persona
         started = await self.lustjinn.call(
             "Starting",
             self.lustjinn.api.create_story(
                 name,
                 character.id,
                 persona_id=persona.id if persona is not None else None,
-                model=model.id if model is not None else None,
             ),
         )
         if started is None:

@@ -111,7 +111,6 @@ class Message(BaseModel):
     text: str
     model: str | None = None
     provider: str | None = None
-    fell_back_from: str | None = None
     sent_at: datetime
 
 
@@ -122,7 +121,6 @@ class Story(BaseModel):
     character_name: str
     persona_id: uuid.UUID | None = None
     persona_name: str | None = None
-    model: str | None = None
     created_at: datetime
     last_message_at: datetime | None = None
     last_message_preview: str | None = None
@@ -326,38 +324,6 @@ class StoryDial(BaseModel):
     label: str | None = None
 
 
-class StoryModel(BaseModel):
-    model: str | None = None
-    """The story's own model; None means the default."""
-    context: int | None = None
-    default: str
-    message: str | None = None
-
-
-class Choice(BaseModel):
-    """A model to pick, with the provider's list prices beside it — to compare by only."""
-
-    id: str
-    is_default: bool = False
-    listed: bool = True
-    context_length: int | None = None
-    prompt_per_million: Decimal | None = None
-    completion_per_million: Decimal | None = None
-    prompt_price_ratio: Decimal | None = None
-
-    def describe(self) -> str:
-        """``id`` with how its prompt price compares with the default's (``ModelInfo.Describe``
-        in the donor): ≥1.5× "≈N× the default", ≤0.67× "≈1/N of the default", else nothing."""
-        if self.is_default or self.prompt_price_ratio is None:
-            return self.id
-        ratio = self.prompt_price_ratio
-        if ratio >= Decimal("1.5"):
-            return f"{self.id}  ≈{ratio.quantize(Decimal(1))}× the default"
-        if ratio <= Decimal("0.67") and ratio > 0:
-            return f"{self.id}  ≈1/{(1 / ratio).quantize(Decimal(1))} of the default"
-        return f"{self.id}  about the default"
-
-
 class Aside(BaseModel):
     id: uuid.UUID
     sequence: int
@@ -404,7 +370,6 @@ Event = Delta | TurnDone | AsideDone | Said | Failed
 
 _stories = TypeAdapter(list[Story])
 _entries = TypeAdapter(list[Entry])
-_choices = TypeAdapter(list[Choice])
 _facts = TypeAdapter(list[Fact])
 _dials = TypeAdapter(list[Dial])
 _story_dials = TypeAdapter(list[StoryDial])
@@ -528,13 +493,10 @@ class Api:
         name: str,
         character_id: uuid.UUID,
         persona_id: uuid.UUID | None = None,
-        model: str | None = None,
     ) -> StoryWithMessages:
         body: dict[str, object] = {"name": name, "character_id": str(character_id)}
         if persona_id is not None:
             body["persona_id"] = str(persona_id)
-        if model is not None:
-            body["model"] = model
         return StoryWithMessages.model_validate(await self._request("POST", "/stories", json=body))
 
     async def rename_story(self, story_id: uuid.UUID, name: str) -> Story:
@@ -667,7 +629,7 @@ class Api:
     async def delete_entry(self, shelf: Shelf, entry_id: uuid.UUID) -> None:
         await self._request("DELETE", f"/library/{shelf}/{entry_id}")
 
-    # -- dials and the story's model ------------------------------------------------------------
+    # -- dials ----------------------------------------------------------------------------------
 
     async def dial_pack(self) -> list[Dial]:
         return _dials.validate_python(await self._request("GET", "/dials"))
@@ -684,20 +646,6 @@ class Api:
 
     async def clear_dial(self, story_id: uuid.UUID, key: str) -> None:
         await self._request("DELETE", f"/stories/{story_id}/dials/{key}")
-
-    async def story_model(self, story_id: uuid.UUID) -> StoryModel:
-        return StoryModel.model_validate(await self._request("GET", f"/stories/{story_id}/model"))
-
-    async def set_model(self, story_id: uuid.UUID, model: str | None) -> StoryModel:
-        return StoryModel.model_validate(
-            await self._request("PUT", f"/stories/{story_id}/model", json={"model": model})
-        )
-
-    # -- models -------------------------------------------------------------------------------
-
-    async def models(self) -> list[Choice]:
-        """The default first, then the configured choices."""
-        return _choices.validate_python(await self._request("GET", "/models"))
 
     # -- turns: streamed --------------------------------------------------------------------
 

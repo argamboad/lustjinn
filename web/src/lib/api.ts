@@ -31,7 +31,6 @@ export interface Message {
 	text: string;
 	model: string | null;
 	provider: string | null;
-	fell_back_from: string | null;
 	sent_at: string;
 }
 
@@ -42,7 +41,6 @@ export interface Story {
 	character_name: string;
 	persona_id: string | null;
 	persona_name: string | null;
-	model: string | null;
 	created_at: string;
 	last_message_at: string | null;
 	last_message_preview: string | null;

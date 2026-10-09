@@ -8,7 +8,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lustjinn.models import Aside, SpendKind, Story
-from tests.factories import a_character, a_story
 from tests.scripted_model import ScriptedModel
 from tests.streaming import send
 from tests.test_turns import a_played_story, ledger, messages
@@ -85,20 +84,6 @@ async def test_asking_runs_cold_and_short_with_reasoning_off(
     assert model.last["max_tokens"] == 600
     assert model.last["reasoning"] == {"enabled": False}
     assert "frequency_penalty" not in model.last
-
-
-async def test_a_story_on_its_own_model_asks_on_it_with_the_cold_setting_mapped(
-    client: httpx2.AsyncClient, session: AsyncSession, model: ScriptedModel
-) -> None:
-    story = await a_story(session, await a_character(session))
-    story.model = "cognitivecomputations/dolphin-mistral-24b-venice-edition"
-    await session.commit()
-    model.says("Nothing says.")
-
-    await send(client, story.id, "/ask Who is she?")
-
-    assert model.last["model"] == story.model
-    assert model.last["temperature"] == 0.15
 
 
 async def test_a_failed_question_stores_nothing_and_bills_nothing(

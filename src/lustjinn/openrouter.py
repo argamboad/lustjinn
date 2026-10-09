@@ -7,7 +7,6 @@ to OpenRouter beyond three things: the `provider` routing field, the `reasoning`
 """
 
 import json
-import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
@@ -22,71 +21,13 @@ from lustjinn.settings import Settings, get_settings
 
 Role = Literal["system", "user", "assistant"]
 
-# The temperature range the Creativity dial was tuned on (step 7). A story's own model may hold
-# only part of it: measured 2026-10-01, every roleplay finetune wrote cleanly up to 0.9 and turned
-# to token soup at 1.3, while DeepSeek holds at 1.3. A temperature asked on the dial's scale is
-# mapped onto the model's range, so "the wildest" is the wildest that model still writes.
-DIAL_LOW = 0.6
-DIAL_HIGH = 1.4
-SHIPPED_TEMPERATURES: dict[str, tuple[float, float]] = {
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition": (0.3, 0.9),
-    "thedrummer/cydonia-24b-v4.1": (0.3, 0.9),
-    "anthracite-org/magnum-v4-72b": (0.3, 0.9),
-    "thedrummer/unslopnemo-12b": (0.3, 0.9),
-}
-
-
-SHIPPED_WINDOWS: dict[str, int] = {
-    "cognitivecomputations/dolphin-mistral-24b-venice-edition": 32_768,
-    "thedrummer/unslopnemo-12b": 131_072,
-}
-"""Each a base model's documented context, where the provider lists more. A provider's list says
-what a host will accept, not what the model was trained to read: Dolphin Venice is listed at 128k
-and built on Mistral Small 24B 2501, trained for 32k — given a 35k-token story it answered in
-token soup from the second line."""
-
-
-def window_of(settings: Settings, model: str, listed: int | None) -> int | None:
-    """The context a model can really use: a configured correction, a shipped one (never above
-    what the list says), or what the list says. None when nothing says."""
-    configured = next(
-        (w for m, w in settings.model_windows.items() if m.lower() == model.lower() and w > 0),
-        None,
-    )
-    if configured is not None:
-        return configured
-    shipped = next((w for m, w in SHIPPED_WINDOWS.items() if m.lower() == model.lower()), None)
-    if shipped is not None:
-        return shipped if listed is None else min(listed, shipped)
-    return listed
-
-
-def temperature_for(model: str, temperature: float) -> float:
-    """The temperature to send a model, for one asked on the dial's scale.
-
-    Linear onto the model's measured range when it has one; unchanged when it does not. A cold
-    setting below the dial's bottom — a question's 0.4 — lands proportionally below the model's,
-    never below a floor that still samples.
-    """
-    found = next((r for m, r in SHIPPED_TEMPERATURES.items() if m.lower() == model.lower()), None)
-    if found is None:
-        return temperature
-    low, high = found
-    share = (temperature - DIAL_LOW) / (DIAL_HIGH - DIAL_LOW)
-    mapped = low + share * (high - low)
-    return round(min(max(mapped, 0.05), high), 3)
-
 
 class ModelError(Exception):
     """The model did not answer. The message is fit to show the reader; the status helps code."""
 
-    def __init__(self, message: str, status: int | None = None, *, no_such_model: bool = False):
+    def __init__(self, message: str, status: int | None = None):
         super().__init__(message)
         self.status = status
-        self.no_such_model = no_such_model
-        """OpenRouter has no host for the model, or does not know the name. Step 7 falls back to
-        the default model on exactly this, and on nothing else: a rejected key or an empty
-        account would refuse the default identically."""
 
 
 @dataclass(frozen=True)
@@ -121,14 +62,6 @@ class Reply:
     def truncated(self) -> bool:
         """Stopped at the token ceiling rather than at the end of what it had to say."""
         return self.finish_reason == "length"
-
-
-@dataclass(frozen=True)
-class ModelInfo:
-    id: str
-    context_length: int | None
-    prompt_per_million: Decimal | None
-    completion_per_million: Decimal | None
 
 
 @lru_cache
@@ -283,25 +216,6 @@ class OpenRouter:
             )
         return [found[i] for i in range(len(texts))]
 
-    async def models(self) -> list[ModelInfo]:
-        """What OpenRouter serves: each model's id, context window and price per million tokens."""
-        async with self._request("GET", "models") as response:
-            listing = _parse((await response.aread()).decode())
-        found: list[ModelInfo] = []
-        for entry in _objects(listing, "data"):
-            if (model_id := _string(entry, "id")) is None:
-                continue
-            pricing = _object(entry, "pricing") or {}
-            found.append(
-                ModelInfo(
-                    id=model_id,
-                    context_length=_integer(entry, "context_length"),
-                    prompt_per_million=_per_million(pricing, "prompt"),
-                    completion_per_million=_per_million(pricing, "completion"),
-                )
-            )
-        return found
-
     def _routing(self) -> dict[str, object] | None:
         """OpenRouter's `provider` object, or None when nothing is configured.
 
@@ -382,21 +296,13 @@ class _Call:
             await response.aclose()
             status = f"{response.status_code} {response.reason_phrase}"
             raise ModelError(
-                f"The API returned {status}. {explained}".strip(),
-                response.status_code,
-                no_such_model=_no_such_model(response.status_code, explained),
+                f"The API returned {status}. {explained}".strip(), response.status_code
             )
         return response
 
     async def __aexit__(self, *_: object) -> None:
         if self._response is not None:
             await self._response.aclose()
-
-
-def _no_such_model(status: int, explained: str) -> bool:
-    """OpenRouter answers a model with no host as 404 ("No endpoints found for …") and a name it
-    does not know as 400 ("… is not a valid model ID"). Only these two are about the model."""
-    return status == 404 or (status == 400 and "not a valid model" in explained.lower())
 
 
 def _explain(content: bytes) -> str:
@@ -447,41 +353,6 @@ def _decimal(source: Json, key: str) -> Decimal | None:
     if isinstance(value, Decimal):
         return value
     return Decimal(value) if isinstance(value, int) and not isinstance(value, bool) else None
-
-
-def _per_million(pricing: Json, key: str) -> Decimal | None:
-    """OpenRouter quotes a price per token, as a string ("0.0000025"). Per million is how anyone
-    compares them."""
-    value = pricing.get(key)
-    if not isinstance(value, str):
-        return None
-    try:
-        per_token = Decimal(value)
-    except ArithmeticError:
-        return None
-    return per_token * 1_000_000 if per_token >= 0 else None
-
-
-CATALOGUE_TTL_SECONDS = 600
-_catalogue: tuple[float, list[ModelInfo]] | None = None
-
-
-async def catalogue(openrouter: OpenRouter) -> list[ModelInfo]:
-    """The provider's model list, read at most once per ten minutes for the process. A public
-    list, and one GET of it per story-model change is plenty; none on a send."""
-    global _catalogue
-    now = time.monotonic()
-    if _catalogue is not None and now - _catalogue[0] < CATALOGUE_TTL_SECONDS:
-        return _catalogue[1]
-    listed = await openrouter.models()
-    _catalogue = (now, listed)
-    return listed
-
-
-def forget_catalogue() -> None:
-    """Drops the cached list, so the next read asks again. Tests, and nothing else, need it."""
-    global _catalogue
-    _catalogue = None
 
 
 def get_openrouter(settings: Annotated[Settings, Depends(get_settings)]) -> OpenRouter:

@@ -5,7 +5,7 @@ from decimal import Decimal
 import pytest
 from pydantic import SecretStr
 
-from lustjinn.openrouter import ChatMessage, ModelError, OpenRouter, Reply, temperature_for
+from lustjinn.openrouter import ChatMessage, ModelError, Reply
 from lustjinn.settings import Settings
 from tests.scripted_model import ScriptedModel
 
@@ -202,27 +202,6 @@ async def test_a_refusal_carries_the_status_and_the_apis_message_but_not_its_bod
     assert "{" not in str(refused.value)  # the message, not the JSON around it
 
 
-@pytest.mark.parametrize(
-    ("status", "message", "no_such_model"),
-    [
-        (404, "No endpoints found for x/y.", True),
-        (400, "x/y is not a valid model ID", True),
-        (400, "max_tokens is too large", False),
-        (401, "No auth credentials found", False),
-        (402, "Insufficient credits", False),
-    ],
-)
-async def test_only_a_refusal_about_the_model_itself_says_there_is_no_such_model(
-    model: ScriptedModel, settings: Settings, status: int, message: str, no_such_model: bool
-) -> None:
-    model.fails(message, status)
-
-    with pytest.raises(ModelError) as refused:
-        await model.client(settings).complete(HELLO)
-
-    assert refused.value.no_such_model is no_such_model
-
-
 async def test_a_success_with_no_content_is_a_failure_that_says_why(
     model: ScriptedModel, settings: Settings
 ) -> None:
@@ -265,54 +244,6 @@ async def test_a_body_that_is_not_a_stream_is_reported_as_such(
 
     with pytest.raises(ModelError, match="not a stream"):
         await model.client(settings).complete(HELLO)
-
-
-async def test_listing_models_gives_the_window_and_the_price_per_million(
-    model: ScriptedModel, settings: Settings
-) -> None:
-    import httpx2
-
-    listing = {
-        "data": [
-            {
-                "id": "deepseek/deepseek-v4-flash",
-                "context_length": 1048576,
-                "pricing": {"prompt": "0.00000008", "completion": "0.00000016"},
-            },
-            {"id": "local/plain"},
-            {"no": "id"},
-        ]
-    }
-    client = OpenRouter(
-        settings,
-        httpx2.AsyncClient(
-            transport=httpx2.MockTransport(lambda _: httpx2.Response(200, json=listing))
-        ),
-    )
-
-    [flash, plain] = await client.models()
-
-    assert (flash.id, flash.context_length) == ("deepseek/deepseek-v4-flash", 1048576)
-    assert (flash.prompt_per_million, flash.completion_per_million) == (
-        Decimal("0.08"),
-        Decimal("0.16"),
-    )
-    assert (plain.context_length, plain.prompt_per_million) == (None, None)
-
-
-def test_a_model_with_a_measured_range_gets_the_dials_temperature_mapped_onto_it() -> None:
-    dolphin = "cognitivecomputations/dolphin-mistral-24b-venice-edition"
-
-    assert temperature_for(dolphin, 0.6) == 0.3  # the dial's bottom is the model's bottom
-    assert temperature_for(dolphin, 1.4) == 0.9  # and its top is the model's top
-    assert temperature_for(dolphin, 1.0) == 0.6
-    assert temperature_for(dolphin, 0.4) == 0.15  # colder than the dial lands proportionally
-    assert temperature_for(dolphin, 0.0) == 0.05  # never below a floor that still samples
-    assert temperature_for(dolphin.upper(), 1.0) == 0.6
-
-
-def test_a_model_with_no_measured_range_keeps_the_temperature_asked() -> None:
-    assert temperature_for("deepseek/deepseek-v4-flash", 1.3) == 1.3
 
 
 def test_the_settings_know_the_defaults(settings: Settings) -> None:

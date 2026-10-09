@@ -62,7 +62,6 @@ class LustjinnApp(App[None]):
         self.config = config
         self.api = api
         self.badge = config.badge
-        self.model_name = ""
         self.wake_waits = wake_waits
         self.editor: Editor = edit_in_editor  # the tests hand in one that needs no terminal
         self.last_key = ""

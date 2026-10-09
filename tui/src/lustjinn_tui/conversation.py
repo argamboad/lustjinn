@@ -54,7 +54,6 @@ from lustjinn_tui.confirm import ConfirmScreen
 from lustjinn_tui.export import ExportScreen
 from lustjinn_tui.hairline import Hairline
 from lustjinn_tui.legend import Hint
-from lustjinn_tui.masthead import Masthead
 from lustjinn_tui.palette import PaletteCommand
 from lustjinn_tui.panes import AskScreen, TextPaneScreen
 from lustjinn_tui.regenerate import RegenerateScreen
@@ -178,7 +177,7 @@ class ConversationScreen(View):
             PaletteCommand(
                 "Regenerate the reply", "the newest one, with a reason", self.action_regenerate
             ),
-            PaletteCommand("Reply settings", "the model and the dials", self.action_settings),
+            PaletteCommand("Reply settings", "the dials", self.action_settings),
             PaletteCommand(
                 "Search this story", "find words in this conversation", self.action_search
             ),
@@ -302,8 +301,6 @@ class ConversationScreen(View):
             return
         self.story = read
         self.title = read.name
-        self.lustjinn.model_name = read.model or ""
-        self.query_one(Masthead).set_model(self.lustjinn.model_name)
         self.messages = read.messages
         self.transcript.show(self.messages, land=True)
         if read.persona_name is None:
@@ -690,13 +687,7 @@ class ConversationScreen(View):
     def action_settings(self) -> None:
         if self._mode != "read":
             return
-        self.lustjinn.push_screen(ChatSettingsScreen(self.story, self._model_changed))
-
-    def _model_changed(self, model: str | None) -> None:
-        """The settings changed the story's model: the masthead says so from now on."""
-        self.story = self.story.model_copy(update={"model": model})
-        self.lustjinn.model_name = model or ""
-        self.query_one(Masthead).set_model(self.lustjinn.model_name)
+        self.lustjinn.push_screen(ChatSettingsScreen(self.story))
 
     def regenerate(self, reason: str, instructions: str | None) -> None:
         replacing = self.messages[-1].id
@@ -767,13 +758,7 @@ class ConversationScreen(View):
         self._measure_draft()
         self.transcript.end_pending()
         self.transcript.show(self.messages, land=True)
-        if done.reply.fell_back_from:
-            self.status(
-                f"{done.reply.fell_back_from} could not write this reply (not available, or the "
-                "story no longer fits it), so the default did. S to change.",
-                Kind.WARNING,
-            )
-        elif done.replayed:
+        if done.replayed:
             self.status("That message had been sent before; here is its reply.")
         else:
             self.status("Reply received.", Kind.SUCCESS)

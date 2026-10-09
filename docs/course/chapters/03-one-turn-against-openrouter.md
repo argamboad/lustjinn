@@ -254,10 +254,6 @@ is a failure, and the message says which of three different problems it was: a c
 (`finish_reason: content_filter`), a ceiling hit before the first token (`length`), or a host
 with nothing to say (`stop`).
 
-The error also carries `no_such_model`, true only for a 404 or a 400 saying "not a valid model".
-Step 7 falls back to the default model on exactly that and on nothing else — a rejected key or
-an empty account would refuse the default identically.
-
 **One timeout, in one place.** The donor had two — its own and `HttpClient`'s 100-second
 default — and the wrong one fired first. Here `httpx2.Timeout(settings.model_timeout_seconds)`
 is set on the request and nowhere else. For a stream it bounds the connection and the gap between
@@ -416,10 +412,8 @@ is one, an instruction for this call only. The instruction goes as `user` when t
 ends on a reply and as `system` when it ends on the reader's own turn — two user turns in a row,
 and a model tends to answer the second and forget the first.
 
-A story that names its own model plays on it, with the temperature mapped onto that model's
-measured range: the roleplay finetunes write cleanly up to 0.9 and turn to token soup at 1.3,
-so 1.0 on the default's scale lands at 0.6 on theirs. `temperature_for` in the client does the
-arithmetic; it is pure, and tested as such.
+Every story plays on the configured model. Step 7 let a story name its own, with the
+temperature mapped onto that model's range; chapter 7 says why it was taken out again.
 
 ## Reroll
 
@@ -554,7 +548,7 @@ assert len(model.calls) == 2
 
 `model` is a fixture, and the `client` fixture overrides `get_openrouter` with a client built on
 the scripted transport — the same `dependency_overrides` trick as the session. The vocabulary
-(`says`, `says_unpriced`, `fails`, `empty`, `truncated`, `has_no_such_model`) is the donor's,
+(`says`, `says_unpriced`, `fails`, `empty`, `truncated`) is the donor's,
 because its tests are the specification: every idempotency case in `tests/test_turns.py` has a
 namesake in `custom-airp`.
 

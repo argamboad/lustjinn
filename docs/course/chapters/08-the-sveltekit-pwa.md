@@ -195,8 +195,7 @@ donor's table of 225, ported as data. `:wave:` becomes 👋 before the message i
 Enter sends; when the composer is empty the send button reads *Carry on ›*.
 
 Answers that are shown once and stored nowhere — `/ask`, `/recap`, a `/tracker` set — appear as
-dashed notes in the conversation, labelled so. A reply the default model wrote because the
-story's model could not gets one amber toast per story. Reroll opens a sheet of the nine
+dashed notes in the conversation, labelled so. Reroll opens a sheet of the nine
 reasons; a long press on any turn opens *branch from here*, *cut the story back to here* (with
 the count of turns it would hide) and *copy*.
 

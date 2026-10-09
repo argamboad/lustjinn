@@ -68,14 +68,6 @@ def keyword_vector(text: str) -> list[float]:
     return vector
 
 
-def a_listed_model(model_id: str, context_length: int | None, prompt: str, completion: str) -> Json:
-    """One entry of OpenRouter's model list: an id, a window, and prices per token as strings."""
-    entry: Json = {"id": model_id, "pricing": {"prompt": prompt, "completion": completion}}
-    if context_length is not None:
-        entry["context_length"] = context_length
-    return entry
-
-
 class ScriptedModel:
     """A queue of answers, each consumed by one call."""
 
@@ -89,14 +81,6 @@ class ScriptedModel:
         self.embedder_down = False
         """When True, the embeddings endpoint answers 503 — the chat endpoint still works."""
         self.embedding_dimensions = DIMENSIONS
-        self.listing: list[Json] = [
-            a_listed_model("deepseek/deepseek-v4-flash", 128_000, "0.00000014", "0.00000028"),
-            a_listed_model("test-model", 32_000, "0.0000005", "0.000001"),
-        ]
-        """What GET /models answers: the default and the test model, priced. A test that needs
-        another model adds it with `lists(...)`."""
-        self.catalogue_down = False
-        """When True, GET /models answers 503."""
 
     @property
     def last(self) -> Json:
@@ -164,11 +148,6 @@ class ScriptedModel:
         )
         return self.says(f"```json\n{document}\n```" if fenced else document)
 
-    def lists(self, *models: Json) -> Self:
-        """Adds models to what GET /models answers; see `a_listed_model`."""
-        self.listing.extend(models)
-        return self
-
     def says_unpriced(self, text: str) -> Self:
         """Answers without the API saying what it charged, as some hosts do."""
         return self.says(text, provider=None, cost=None, cached_tokens=None)
@@ -220,10 +199,6 @@ class ScriptedModel:
         """Fails in a way no second attempt could fix: the key was refused."""
         return self.fails("No auth credentials found", 401)
 
-    def has_no_such_model(self) -> Self:
-        """Refuses the way OpenRouter does a model no host serves."""
-        return self.fails("No endpoints found for the model.", 404)
-
     def breaks_mid_stream(self, message: str = "Provider returned error") -> Self:
         """Starts answering, then sends an error chunk, as a host dying mid-reply does."""
         generation = "gen-broken"
@@ -243,10 +218,6 @@ class ScriptedModel:
             self.requests.append(request)
             if request.url.path.endswith("/embeddings"):
                 return self._embed(json.loads(request.content))
-            if request.url.path.endswith("/models") and request.method == "GET":
-                if self.catalogue_down:
-                    return httpx2.Response(503, json={"error": {"code": 503, "message": "down"}})
-                return httpx2.Response(200, json={"data": self.listing})
             if request.content:
                 self.calls.append(json.loads(request.content))
             if not self._answers:

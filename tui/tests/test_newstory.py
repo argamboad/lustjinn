@@ -2,11 +2,8 @@
 persona, Enter walks the fields, and creating opens the story. The donor's
 ``NewChatFlowTests``, for the parts the API kept."""
 
-from collections.abc import Callable
 from datetime import datetime
-from decimal import Decimal
 
-from lustjinn_tui.api import Choice
 from lustjinn_tui.app import LustjinnApp
 from lustjinn_tui.confirm import ConfirmScreen
 from lustjinn_tui.conversation import ConversationScreen
@@ -43,11 +40,6 @@ async def test_the_pickers_read_the_library_and_the_panels_show_what_will_be_sen
         screen = form(app)
         assert screen.picker("character").choices == ["Elena", "Marta"]
         assert screen.picker("persona").choices == ["(default: Me)", "Me", "Someone else"]
-        assert screen.picker("model").choices[0] == f"(default: {fake.DEFAULT_MODEL})"
-        assert screen.picker("model").choices[1:] == [
-            "thedrummer/anubis-70b  ≈2× the default",
-            "mistralai/mistral-small  ≈1/2 of the default",
-        ]
         # The default persona is on screen before anything is picked, beside the world.
         assert screen.query_one("#world", Panel).text == WORLD
         assert screen.query_one("#persona-text", Panel).text == PERSONA
@@ -104,14 +96,13 @@ async def test_the_whole_flow_creates_a_story_and_opens_it(
         await pilot.press(*"Cliffs", "enter")  # Enter walks the fields
         screen = form(app)
         assert screen.focused is screen.picker("character")
-        await pilot.press("enter", "right", "right", "enter", "right", "enter")  # the last creates
+        await pilot.press("enter", "right", "right", "enter")  # the last creates
         await pilot.pause(0.2)
         assert isinstance(app.screen, ConversationScreen)
         story = app.screen.story
         assert story.name == "Cliffs"
         assert story.character_name == "Elena"
         assert story.persona_name == "Someone else"
-        assert story.model == "thedrummer/anubis-70b"
         assert app.screen.status_line.text == '"Cliffs" started.'
         assert app.screen.status_line.kind == Kind.SUCCESS
         assert [s.__class__ for s in app.screen_stack] == [StoriesScreen, ConversationScreen]
@@ -134,7 +125,6 @@ async def test_ctrl_s_creates_from_anywhere_and_a_nameless_story_is_named_after_
         assert isinstance(app.screen, ConversationScreen)
         assert app.screen.story.name.startswith("Elena, ")
         assert app.screen.story.persona_id is None  # the default, left to the server
-        assert app.screen.story.model is None
 
 
 def test_the_default_name_is_the_character_and_the_day() -> None:
@@ -184,45 +174,18 @@ async def test_a_refused_creation_keeps_the_form_with_the_servers_sentence(
     app: LustjinnApp, server: fake.FakeServer
 ) -> None:
     library(server)
-    server.models.append(fake.choice("gone/model"))
     async with app.run_test(size=(100, 30)) as pilot:
         await pilot.pause(0.1)
         await pilot.press("n")
         await pilot.pause(0.2)
-        server.models.pop()  # the server stops listing it between the read and the create
         screen = form(app)
-        screen.picker("model").index = 3
+        screen.picker("persona").index = 2
+        server.library["personas"].pop()  # deleted elsewhere between the read and the create
         await pilot.press("ctrl+s")
         await pilot.pause(0.1)
         assert isinstance(app.screen, NewStoryScreen)
         assert screen.status_line.kind == Kind.ERROR
-        assert screen.status_line.text.startswith("gone/model is not available")
-
-
-async def test_the_model_list_is_never_waited_for(
-    make_app: Callable[..., LustjinnApp], server: fake.FakeServer
-) -> None:
-    library(server)
-    server.models_unreadable = True
-    app = make_app()
-    async with app.run_test(size=(100, 30)) as pilot:
-        await pilot.pause(0.1)
-        await pilot.press("n")
-        await pilot.pause(0.2)
-        screen = form(app)
-        assert screen.picker("model").choices == ["(default)"]
-        assert screen.status_line.kind != Kind.ERROR
-        await pilot.press("ctrl+s")
-        await pilot.pause(0.2)
-        assert isinstance(app.screen, ConversationScreen)
-
-
-def test_a_choice_describes_its_price_against_the_default() -> None:
-    assert Choice(id="a", is_default=True).describe() == "a"
-    assert Choice(id="a", prompt_price_ratio=None).describe() == "a"
-    assert Choice(id="a", prompt_price_ratio=Decimal(2)).describe() == "a  ≈2× the default"
-    assert Choice(id="a", prompt_price_ratio=Decimal("0.25")).describe() == "a  ≈1/4 of the default"
-    assert Choice(id="a", prompt_price_ratio=Decimal("1.1")).describe() == "a  about the default"
+        assert screen.status_line.text.startswith("There is no persona with that id")
 
 
 async def test_picker_steps_wrap_and_a_lone_choice_stays_put() -> None:
