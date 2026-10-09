@@ -178,6 +178,15 @@ pointer events and a `transform`, and a tap on a swiped card closes it rather th
 story. Pull down at the top to refresh. The gold button starts a new story: pick a character, a
 persona (the default preselected), a name.
 
+The search box filters with the donor's fuzzy matcher over the story's name, best match first —
+the same matcher the terminal uses, ported line for line to `fuzzy.ts` (#135). It first matched
+substrings of the name, the character and the preview, so the same letters ordered different
+stories in the two clients. A port drifts unless something holds it, so the web's tests include
+a table of scores computed by the terminal's `fuzzy.py`, and both must agree to the point. Two
+details make that possible: the port counts code points with `Array.from(text)`, not UTF-16
+units, so an emoji in a name costs one character in both languages, and the integer mean of a
+multi-word query floors as Python's `//` does.
+
 ### The conversation
 
 The screen you live in. Your turns are gold-edged on the right; the character's are on the
