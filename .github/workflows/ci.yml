@@ -43,9 +43,11 @@ jobs:
       UV_VERSION: "0.12.22"
     # The database tests need a real Postgres: the same image and port as docker-compose.yml, so
     # the tests' default connection string works here unchanged. The job waits for it to be healthy.
+    # Pulled through mirror.gcr.io, Google's public cache of Docker Hub: Docker Hub's anonymous
+    # pull limit is shared by the runners' IPs and failed the job before any test ran (#148).
     services:
       postgres:
-        image: pgvector/pgvector:pg17
+        image: mirror.gcr.io/pgvector/pgvector:pg17
         env:
           POSTGRES_USER: lustjinn
           POSTGRES_PASSWORD: lustjinn
